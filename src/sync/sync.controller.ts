@@ -5,13 +5,16 @@ import { ShopifyStockSyncService } from './sync.service';
 export class SyncController {
   constructor(private readonly syncService: ShopifyStockSyncService) {}
 
- @Get('sync-stock')
-async syncStock() {
-  const result = await this.syncService.syncAllStockFromCLD();
-  return {
-    message: `✅ Synced ${result.updated.length} products.`,
-    updated: result.updated,
-    skipped: result.skipped,
-  };
-}
+  @Get('sync-stock')
+  async syncStock() {
+    const result = await this.syncService.syncAllStockFromCLD(true);
+    return {
+       dryRun: true,
+    updatedCount: result.updated.length,
+    skippedCount: result.skipped.length,
+      message: `✅ Synced ${result.updated.length} products.`,
+      updated: result.updated,
+      skipped: result.skipped,
+    };
+  }
 }

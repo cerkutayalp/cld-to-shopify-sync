@@ -5,13 +5,15 @@
   "scripts": {
     "start": "nest start",
     "start:dev": "nest start --watch",
-    "build": "tsc"
+    "build": "tsc",
+    "test:sync": "ts-node -r tsconfig-paths/register scripts/test-sync.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.3",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.3",
     "@nestjs/platform-express": "^11.1.3",
+    "@nestjs/schedule": "^6.0.0",
     "axios": "^1.10.0",
     "axios-retry": "^4.5.0",
     "dayjs": "^1.11.13",
@@ -26,6 +28,8 @@
     "@types/node": "^20.4.2",
     "jest": "^30.0.4",
     "ts-jest": "^29.4.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.1.6"
   }
 }
