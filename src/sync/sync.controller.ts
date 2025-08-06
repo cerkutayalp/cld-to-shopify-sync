@@ -7,7 +7,7 @@ export class SyncController {
 
   @Get('sync-stock')
   async syncStock() {
-    const result = await this.syncService.syncAllStockFromCLD(true);
+    const result = await this.syncService.syncAllStockFromCLD();
     return {
        dryRun: true,
     updatedCount: result.updated.length,

@@ -6,8 +6,8 @@ async function bootstrap() {
   const app = await NestFactory.createApplicationContext(AppModule);
   const syncService = app.get(ShopifyStockSyncService);
 
-  await syncService.syncAllStockFromCLD(true); // true = dryRun
-  await app.close();
+  // await syncService.syncAllStockFromCLD(); // true = dryRun
+  // await app.close();
 }
 
 bootstrap().catch((err) => {
