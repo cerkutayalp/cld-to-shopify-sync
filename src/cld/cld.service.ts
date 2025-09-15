@@ -1,10 +1,10 @@
-import { Injectable  } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import axios from "axios";
 import axiosRetry from "axios-retry";
 import { ConfigService } from "@nestjs/config";
 import { PaginationPayload, Product } from "./Dto/CldProductResponse";
 import { CldLoginResponse } from "./Dto/CldLoginResponse";
-import { OrderPayload, PlaceOrderResponse } from './Dto/OrderPayload';
+import { OrderPayload, PlaceOrderResponse } from "./Dto/OrderPayload";
 import { LoggerService } from "../logger/logger.service";
 
 // Enable retry logic globally
@@ -32,14 +32,13 @@ export class CldService {
 
   constructor(
     private configService: ConfigService,
-    private readonly loggerService: LoggerService,
-    
+    private readonly loggerService: LoggerService
   ) {
     this.apiUrl = this.configService.get<string>("CLD_API_URL")!;
     this.apiKey = this.configService.get<string>("CLD_API_KEY")!;
     this.isTestMode =
       this.configService.get<string>("SHOPIFY_TEST_MODE") === "true";
-      console.log('🧪 LoggerService injected?', !!this.loggerService);
+    console.log("🧪 LoggerService injected?", !!this.loggerService);
   }
 
   public async getAuthToken(): Promise<string> {
@@ -270,7 +269,7 @@ export class CldService {
 
     console.log(`🎉 Finished sending ${sentCount} new products to Shopify.`);
   }
-
+  //#region personal FOR TESTING PURPOSE ONLY
   async sendFirstFiveProductsToShopify() {
     let sentCount = 0;
     for await (const products of this.getStockList()) {
@@ -311,136 +310,154 @@ export class CldService {
       `❌ Product with identifier ${cldIdentifier} not found in stock list.`
     );
   }
+  //#endregion
 
-  //shopify order place to CLD 
+  //shopify order place to CLD
 
-async createCldCart(): Promise<{ cartId: string }> {
-  if (!this.token) {
-    this.token = await this.getAuthToken();
-  }
+  async createCldCart(): Promise<{ cartId: string }> {
+    if (!this.token) {
+      this.token = await this.getAuthToken();
+    }
 
-  const url = `${this.apiUrl}/Dropshiping/cart/create`;
+    const url = `${this.apiUrl}/Dropshiping/cart/create`;
 
-  const response = await axios.get(url, {
-    headers: {
-      accept: "text/plain",
-      Authorization: `Bearer ${this.token}`,
-    },
-  });
-
-  if (!response.data?.cartId) {
-    throw new Error("❌ Failed to create CLD cart");
-  }
-
-  return { cartId: response.data.cartId };
-}
-
-
-async addItemsToCldCart(cartId: string, items: { sku: string; qty: number }[]) {
-  if (!this.token) {
-    this.token = await this.getAuthToken();
-  }
-
-  const url = `${this.apiUrl}/Dropshiping/cart/add`;
-
-  const payload = {
-    items,
-    cartId,
-  };
-
-  const response = await axios.post(url, payload, {
-    headers: {
-      accept: "text/plain",
-      Authorization: `Bearer ${this.token}`,
-      "Content-Type": "application/json-patch+json",
-    },
-    maxBodyLength: Infinity,
-  });
-console.log ("add cartt rsponse ", response.data)
-  return response.data;
-}
-
-async getCldCart(cartId: string) {
-  if (!this.token) {
-    this.token = await this.getAuthToken();
-  }
-
-  const url = `${this.apiUrl}/Dropshiping/cart/get`;
-  const payload = { cartId };
-
-  const response = await axios.post(url, payload, {
-    headers: {
-      accept: "text/plain", // must match Postman
-      Authorization: `Bearer ${this.token}`,
-      "Content-Type": "application/json-patch+json",
-    },
-    maxBodyLength: Infinity,
-  });
-
-  return response.data; 
-  // returns: { items, id, docType, docNumber, amountExcludingVat, ... }
-}
-
-///working 
-async placeOrder(order: OrderPayload): Promise<PlaceOrderResponse> {
-  if (!this.token) {
-    this.token = await this.getAuthToken();
-  }
-
-  const url = `${this.apiUrl}/Dropshiping/order/place`;
-
-  try {
-    console.log("📤 [1] Sending order payload to CLD:", JSON.stringify(order, null, 2));
-    const response = await axios.post<PlaceOrderResponse>(url, order, {
+    const response = await axios.get(url, {
       headers: {
-        accept: "*/*",
+        accept: "text/plain",
+        Authorization: `Bearer ${this.token}`,
+      },
+    });
+
+    if (!response.data?.cartId) {
+      throw new Error("❌ Failed to create CLD cart");
+    }
+
+    return { cartId: response.data.cartId };
+  }
+
+  async addItemsToCldCart(
+    cartId: string,
+    items: { sku: string; qty: number }[]
+  ) {
+    if (!this.token) {
+      this.token = await this.getAuthToken();
+    }
+
+    const url = `${this.apiUrl}/Dropshiping/cart/add`;
+
+    const payload = {
+      items,
+      cartId,
+    };
+
+    const response = await axios.post(url, payload, {
+      headers: {
+        accept: "text/plain",
         Authorization: `Bearer ${this.token}`,
         "Content-Type": "application/json-patch+json",
       },
       maxBodyLength: Infinity,
     });
-    //1 print 
-    console.log("📥 [2] Raw response from CLD:", JSON.stringify(response.data, null, 2));
+    console.log("add cartt rsponse ", response.data);
+    return response.data;
+  }
 
-    if (!response.data?.status) {
-      //2 print
-      console.log("✅ [4] CLD order placed successfully with status:", response.data.status);
-      throw new Error(`CLD order placement failed: ${response.data?.message || 'Unknown error'}`);
+  async getCldCart(cartId: string) {
+    if (!this.token) {
+      this.token = await this.getAuthToken();
     }
-    //3 print
-    console.log("✅ [4] CLD order message :", response.data.message);
+
+    const url = `${this.apiUrl}/Dropshiping/cart/get`;
+    const payload = { cartId };
+
+    const response = await axios.post(url, payload, {
+      headers: {
+        accept: "text/plain", // must match Postman
+        Authorization: `Bearer ${this.token}`,
+        "Content-Type": "application/json-patch+json",
+      },
+      maxBodyLength: Infinity,
+    });
 
     return response.data;
-  } catch (error: any) {
-    //4 print
-    console.log("✅ [4] CLD order placed successfully with status:", error);
-    this.loggerService.error(`❌ Failed to place order in CLD: ${error.message}`);
-    throw error;
+    // returns: { items, id, docType, docNumber, amountExcludingVat, ... }
   }
-}
 
-
-async findOrderByShopifyId(shopifyOrderId: string): Promise<any | null> {
-  try {
-    const response = await axios.get(`${this.apiUrl}/orders/${shopifyOrderId}`, {
-      headers: { Authorization: `Bearer ${this.token}` },
-    });
-    return response.data; // return CLD order if found
-  } catch (e: unknown) {
-    // If CLD returns 404, it means not found → safe to place
-    if (axios.isAxiosError(e) && e.response?.status === 404) {
-      return null;
+  ///working
+  async placeOrder(order: OrderPayload): Promise<PlaceOrderResponse> {
+    if (!this.token) {
+      this.token = await this.getAuthToken();
     }
-    console.error(`CLD lookup failed:`, e);
-    throw e; // only throw if it's not "not found"
-  }
-}
 
-async getTrackingUrl(orderId: string, docType: string, docNumber: string) {
-  try {
-    const res = await axios.get(
-      "https://b12api.cld.eu/Account/shipment-link",
-      {
+    const url = `${this.apiUrl}/Dropshiping/order/place`;
+
+    try {
+      console.log(
+        "📤 [1] Sending order payload to CLD:",
+        JSON.stringify(order, null, 2)
+      );
+      const response = await axios.post<PlaceOrderResponse>(url, order, {
+        headers: {
+          accept: "*/*",
+          Authorization: `Bearer ${this.token}`,
+          "Content-Type": "application/json-patch+json",
+        },
+        maxBodyLength: Infinity,
+      });
+      //1 print
+      console.log(
+        "📥 [2] Raw response from CLD:",
+        JSON.stringify(response.data, null, 2)
+      );
+
+      if (!response.data?.status) {
+        //2 print
+        console.log(
+          "✅ [4] CLD order placed successfully with status:",
+          response.data.status
+        );
+        throw new Error(
+          `CLD order placement failed: ${
+            response.data?.message || "Unknown error"
+          }`
+        );
+      }
+      //3 print
+      console.log("✅ [4] CLD order message :", response.data.message);
+
+      return response.data;
+    } catch (error: any) {
+      //4 print
+      console.log("✅ [4] CLD order placed successfully with status:", error);
+      this.loggerService.error(
+        `❌ Failed to place order in CLD: ${error.message}`
+      );
+      throw error;
+    }
+  }
+
+  async findOrderByShopifyId(shopifyOrderId: string): Promise<any | null> {
+    try {
+      const response = await axios.get(
+        `${this.apiUrl}/orders/${shopifyOrderId}`,
+        {
+          headers: { Authorization: `Bearer ${this.token}` },
+        }
+      );
+      return response.data; // return CLD order if found
+    } catch (e: unknown) {
+      // If CLD returns 404, it means not found → safe to place
+      if (axios.isAxiosError(e) && e.response?.status === 404) {
+        return null;
+      }
+      console.error(`CLD lookup failed:`, e);
+      throw e; // only throw if it's not "not found"
+    }
+  }
+
+  async getTrackingUrl(orderId: string, docType: string, docNumber: string) {
+    try {
+      const res = await axios.get(`${this.apiUrl}/Account/shipment-link`, {
         params: {
           id: orderId,
           docType,
@@ -450,18 +467,15 @@ async getTrackingUrl(orderId: string, docType: string, docNumber: string) {
           Accept: "text/plain",
           Authorization: `Bearer ${this.token}`,
         },
+      });
+
+      return res.data; // { trackingUrl, trackingUrlExt }
+    } catch (err: any) {
+      console.error("❌ Failed to fetch tracking URL:", err.message);
+      if (err.response) {
+        console.error("❌ CLD API error:", err.response.data);
       }
-    );
-
-    return res.data; // { trackingUrl, trackingUrlExt }
-  } catch (err: any) {
-    console.error("❌ Failed to fetch tracking URL:", err.message);
-    if (err.response) {
-      console.error("❌ CLD API error:", err.response.data);
+      throw err;
     }
-    throw err;
   }
-}
-
-
 }

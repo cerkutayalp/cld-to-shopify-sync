@@ -5,11 +5,8 @@ import { ConfigService } from "@nestjs/config";
 import { Product } from "../cld/Dto/CldProductResponse";
 import { LoggerService } from "../logger/logger.service";
 import { ShopifyService } from "src/shopify/shopify.service";
-import { OrderPayload } from '../cld/Dto/OrderPayload';
-import { ShopifyOrder } from '../shopify/Dto/ShopifyOrderResponse';
-
-
-
+import { OrderPayload } from "../cld/Dto/OrderPayload";
+import { ShopifyOrder } from "../shopify/Dto/ShopifyOrderResponse";
 
 type StockSyncResult = {
   updated: {
@@ -441,6 +438,7 @@ export class ShopifyStockSyncService {
 
   // send order to cld
   async syncAllOrderToCLD(page_size = 50) {
+    
     for await (const batch of this.shopifyService.getOrdersPaginated(
       page_size
     )) {
