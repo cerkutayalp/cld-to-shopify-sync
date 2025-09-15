@@ -372,14 +372,14 @@ export class ShopifyStockSyncService {
 
   //fulfillment service
   async createShopifyFulfillment(
-    order: ShopifyOrder,
+    orderId: string | number,
     tracking?: { url: string; number?: string; company?: string }
   ) {
-    console.log("🚀 Starting fulfillment for order:", order.id);
+    console.log("🚀 Starting fulfillment for order:", orderId);
 
     // 1. Get fulfillment orders
     const fOrdersResp = await axios.get(
-      `${this.shopifyApiUrl}/admin/api/2023-10/orders/${order.id}/fulfillment_orders.json`,
+      `${this.shopifyApiUrl}/admin/api/2023-10/orders/${orderId}/fulfillment_orders.json`,
       { headers: { "X-Shopify-Access-Token": this.shopifyToken } }
     );
     const fOrders = fOrdersResp.data.fulfillment_orders;
@@ -550,7 +550,7 @@ export class ShopifyStockSyncService {
             );
             console.log("✅ Tracking URL found:", trackingUrl);
             // Create fulfillment in Shopify with tracking
-            await this.createShopifyFulfillment(order, {
+            await this.createShopifyFulfillment(order.id, {
               url: trackingUrl, // use CLD tracking URL
               // number: tracking?.trackingNumber || "", // if CLD provides tracking number
               company: "Other", // default "Other" if none
