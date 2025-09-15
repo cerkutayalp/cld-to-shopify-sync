@@ -436,4 +436,32 @@ async findOrderByShopifyId(shopifyOrderId: string): Promise<any | null> {
   }
 }
 
+async getTrackingUrl(orderId: string, docType: string, docNumber: string) {
+  try {
+    const res = await axios.get(
+      "https://b12api.cld.eu/Account/shipment-link",
+      {
+        params: {
+          id: orderId,
+          docType,
+          docNumber,
+        },
+        headers: {
+          Accept: "text/plain",
+          Authorization: `Bearer ${this.token}`,
+        },
+      }
+    );
+
+    return res.data; // { trackingUrl, trackingUrlExt }
+  } catch (err: any) {
+    console.error("❌ Failed to fetch tracking URL:", err.message);
+    if (err.response) {
+      console.error("❌ CLD API error:", err.response.data);
+    }
+    throw err;
+  }
+}
+
+
 }

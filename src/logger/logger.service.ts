@@ -92,7 +92,8 @@ constructor() {
 }
 
 //logger for Orders
-logOrderAction(action: 'RECEIVED' | 'MAPPED' | 'PLACED' | 'ERROR' | 'SKIPPED' | 'FULFILLED', orderData: any, notes = '') {
+logOrderAction(action: 'RECEIVED' | 'MAPPED' | 'PLACED' | 'ERROR' | 'SKIPPED' | 'FULFILLED' | "TRACKING_FETCHED" | "TRACKING_FOUND" | "FULFILLMENT_CREATED"
+  | "TRACKING_MISSING", orderData: any, notes = '') {
   const orderLogPath = path.join(this.logDir, 'shopify-orders.json');
   this.ensureLogDirExists();
 
