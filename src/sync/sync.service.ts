@@ -465,11 +465,11 @@ export class ShopifyStockSyncService {
           );
 
           // 2. Skip if not paid ,  Not needed now implement from the order Api only fetch paid order.
-          // if (order.financial_status !== 'paid') {
-          //   console.log(`⏭ Skipping order ${order.id} (financial_status = ${order.financial_status}).`);
-          //   this.loggerService.logOrderAction('SKIPPED', order, 'Order not paid');
-          //   continue;
-          // }
+          if (order.financial_status !== 'paid') {
+            console.log(`⏭ Skipping order ${order.id} (financial_status = ${order.financial_status}).`);
+            this.loggerService.logOrderAction('SKIPPED', order, 'Order not paid');
+            continue;
+          }
 
           // 3. Check if order already exists in CLD (persistent check)
           // const alreadyInCld = await this.cldService.findOrderByShopifyId(order.id);
