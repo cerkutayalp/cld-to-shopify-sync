@@ -7,6 +7,7 @@ import { ShopifyStockSyncService  } from './sync/sync.service';
 import { SyncController } from './sync/sync.controller';
 import { CronService } from './sync/cron/cron.service';
 import { LoggerService } from './logger/logger.service';
+import { ShipmentStatusService } from "../src/cld/Dto/shipment-status.service";
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { LoggerService } from './logger/logger.service';
     ShopifyModule,
     CldModule
   ],
-  providers: [ShopifyStockSyncService, CronService, LoggerService ],
+  providers: [ShopifyStockSyncService, CronService, LoggerService, ShipmentStatusService ],
   controllers: [SyncController],
 })
 export class AppModule {}

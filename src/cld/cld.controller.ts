@@ -42,55 +42,55 @@ export class CldController {
   }
   
 
-  @Post('send-5-products')
-  async sendFiveProducts() {
-    try {
-      await this.cldService.sendFirstFiveProductsToShopify();
-      return { status: 'success', message: 'Sent 5 products to Shopify (as draft).' };
-    } catch (error: any) {
-      console.error('💥 Error in sendFiveProducts:', error);
-      return {
-        status: 'error',
-        message: error?.message || 'Unknown error',
-      };
-    }
-  }
+//   @Post('send-5-products')
+//   async sendFiveProducts() {
+//     try {
+//       await this.cldService.sendFirstFiveProductsToShopify();
+//       return { status: 'success', message: 'Sent 5 products to Shopify (as draft).' };
+//     } catch (error: any) {
+//       console.error('💥 Error in sendFiveProducts:', error);
+//       return {
+//         status: 'error',
+//         message: error?.message || 'Unknown error',
+//       };
+//     }
+//   }
   
-// add product by id
-  @Post('send-product/:identifier')
-async sendProductByIdentifier(@Param('identifier') identifier: string) {
-  if (!identifier || identifier.length < 3) {
-    throw new BadRequestException('Invalid CLD product identifier.');
-  }
+// // add product by id
+//   @Post('send-product/:identifier')
+// async sendProductByIdentifier(@Param('identifier') identifier: string) {
+//   if (!identifier || identifier.length < 3) {
+//     throw new BadRequestException('Invalid CLD product identifier.');
+//   }
 
-  try {
-    const result = await this.cldService.sendSpecificProductToShopify(identifier);
-    return {
-      status: 'success',
-      message: `Product ${identifier} sent to Shopify.`,
-      result,
-    };
-  } catch (error: any) {
-    console.error(`💥 Error sending product ${identifier}:`, error);
-    return {
-      status: 'error',
-      message: error?.message || `Failed to send product ${identifier}`,
-    };
-  }
-}
+//   try {
+//     const result = await this.cldService.sendSpecificProductToShopify(identifier);
+//     return {
+//       status: 'success',
+//       message: `Product ${identifier} sent to Shopify.`,
+//       result,
+//     };
+//   } catch (error: any) {
+//     console.error(`💥 Error sending product ${identifier}:`, error);
+//     return {
+//       status: 'error',
+//       message: error?.message || `Failed to send product ${identifier}`,
+//     };
+//   }
+// }
 
-@Post('send-all-products')
-  async sendAllProducts() {
-    try {
-      await this.cldService.sendAllProductsToShopify();
-      return { status: 'success', message: 'All products sent to Shopify (excluding existing ones).' };
-    } catch (error: any) {
-      console.error('💥 Error in sendAllProducts:', error);
-      return {
-        status: 'error',
-        message: error?.message || 'Unknown error while sending all products',
-      };
-    }
-  }
+// @Post('send-all-products')
+//   async sendAllProducts() {
+//     try {
+//       await this.cldService.sendAllProductsToShopify();
+//       return { status: 'success', message: 'All products sent to Shopify (excluding existing ones).' };
+//     } catch (error: any) {
+//       console.error('💥 Error in sendAllProducts:', error);
+//       return {
+//         status: 'error',
+//         message: error?.message || 'Unknown error while sending all products',
+//       };
+//     }
+//   }
 
 }

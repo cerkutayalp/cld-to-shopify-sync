@@ -202,38 +202,31 @@ export class CldService {
     }
   }
 
-  async sendProductToShopify(shopifyProduct: any) {
-    const sku = shopifyProduct.variants?.[0]?.sku;
-    if (!sku) {
-      console.warn("⚠️ No SKU provided. Skipping product.");
-      return;
-    }
+async sendProductToShopify(shopifyProduct: any) {
+  const sku = shopifyProduct.variants?.[0]?.sku;
+  if (!sku) {
+    console.warn("⚠️ No SKU provided. Skipping product.");
+    return;
+  }
 
-    const exists = await this.isProductInShopify(sku);
-    if (exists) {
-      console.log(
-        `🔁 Product with SKU ${sku} already exists in Shopify. Skipping.`
-      );
-      this.loggerService.logProductAction(
-        "SKIPPED",
-        shopifyProduct,
-        "Duplicate SKU"
-      );
-      return;
-    }
+  const exists = await this.isProductInShopify(sku);
+  if (exists) {
+    console.log(`🔁 Product with SKU ${sku} already exists in Shopify. Skipping.`);
+    this.loggerService.logProductAction("SKIPPED", shopifyProduct, "Duplicate SKU");
+    return;
+  }
 
-    const shopifyApiUrl = this.configService.get<string>("SHOPIFY_API_URL")!;
-    const shopifyAccessToken = this.configService.get<string>(
-      "SHOPIFY_ACCESS_TOKEN"
-    )!;
+  const shopifyApiUrl = this.configService.get<string>("SHOPIFY_API_URL")!;
+  const shopifyAccessToken = this.configService.get<string>("SHOPIFY_ACCESS_TOKEN")!;
 
-    const payload = {
-      product: {
-        ...shopifyProduct,
-        status: "draft",
-      },
-    };
+  const payload = {
+    product: {
+      ...shopifyProduct,
+      status: "draft",
+    },
+  };
 
+  try {
     const response = await axios.post(
       `${shopifyApiUrl}/admin/api/2023-10/products.json`,
       payload,
@@ -246,8 +239,20 @@ export class CldService {
     );
 
     this.loggerService.logProductAction("CREATE", payload.product);
+
+    console.log("📦 Shopify response status:", response.status);
+
     return response.data;
+  } catch (error: any) {
+    console.error("❌ Shopify error response:", error.response?.data || error.message);
+    this.loggerService.error(
+      `❌ Failed to send product SKU ${sku} to Shopify: ${JSON.stringify(
+        error.response?.data || error.message
+      )}`
+    );
+    return null;
   }
+}
 
   async sendAllProductsToShopify() {
     let sentCount = 0;
@@ -269,50 +274,8 @@ export class CldService {
 
     console.log(`🎉 Finished sending ${sentCount} new products to Shopify.`);
   }
-  //#region personal FOR TESTING PURPOSE ONLY
-  async sendFirstFiveProductsToShopify() {
-    let sentCount = 0;
-    for await (const products of this.getStockList()) {
-      for (const cldProduct of products) {
-        if (sentCount >= 5) return;
-        const shopifyProduct = this.mapCldToShopifyProduct(cldProduct);
-        const response = await this.sendProductToShopify(shopifyProduct);
-        console.log(
-          `Sent product ${sentCount + 1}:`,
-          response.product?.id || response
-        );
-        sentCount++;
-        if (sentCount >= 5) return;
-      }
-    }
-  }
 
-  async sendSpecificProductToShopify(cldIdentifier: string): Promise<any> {
-    if (!this.token) {
-      this.token = await this.getAuthToken();
-    }
-
-    for await (const page of this.getStockList()) {
-      const product = page.find((p: Product) => p.identifier === cldIdentifier);
-
-      if (product) {
-        const shopifyProduct = this.mapCldToShopifyProduct(product);
-        const shopifyResponse = await this.sendProductToShopify(shopifyProduct);
-        console.log(
-          `✅ Sent product ${cldIdentifier} to Shopify:`,
-          shopifyResponse.product?.id || shopifyResponse
-        );
-        return shopifyResponse;
-      }
-    }
-
-    throw new Error(
-      `❌ Product with identifier ${cldIdentifier} not found in stock list.`
-    );
-  }
-  //#endregion
-
-  //shopify order place to CLD
+  //Create CLD Cart for the product.
 
   async createCldCart(): Promise<{ cartId: string }> {
     if (!this.token) {
@@ -335,6 +298,7 @@ export class CldService {
     return { cartId: response.data.cartId };
   }
 
+  // Add item to the cart.
   async addItemsToCldCart(
     cartId: string,
     items: { sku: string; qty: number }[]
@@ -372,7 +336,7 @@ export class CldService {
 
     const response = await axios.post(url, payload, {
       headers: {
-        accept: "text/plain", // must match Postman
+        accept: "text/plain",
         Authorization: `Bearer ${this.token}`,
         "Content-Type": "application/json-patch+json",
       },
@@ -394,7 +358,7 @@ export class CldService {
     try {
       console.log(
         "📤 [1] Sending order payload to CLD:",
-        JSON.stringify(order, null, 2)
+        (order)
       );
       const response = await axios.post<PlaceOrderResponse>(url, order, {
         headers: {
@@ -407,15 +371,15 @@ export class CldService {
       //1 print
       console.log(
         "📥 [2] Raw response from CLD:",
-        JSON.stringify(response.data, null, 2)
+        (response.data)
       );
 
       if (!response.data?.status) {
         //2 print
         console.log(
           "✅ [4] CLD order placed successfully with status:",
-          response.data.status
-        );
+          response.data
+        );  
         throw new Error(
           `CLD order placement failed: ${
             response.data?.message || "Unknown error"

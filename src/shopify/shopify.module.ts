@@ -8,14 +8,16 @@ import { SyncController } from '../sync/sync.controller';
 import { ShopifyStockSyncService } from '../sync/sync.service';
 import { CldService } from '../cld/cld.service';
 import { LoggerModule } from '../logger/logger.module';
+import { ShipmentStatusService  } from '../cld/Dto/shipment-status.service';
 
 @Module({
   imports: [ConfigModule, LoggerModule],
   controllers: [ShopifyController, SyncController], // Add SyncController
   providers: [
     ShopifyService,
-    ShopifyStockSyncService, // Add SyncService
-    CldService,              // Add CLD service
+    ShopifyStockSyncService,
+    CldService,
+    ShipmentStatusService ,
   ],
   exports: [ShopifyService],
 })
