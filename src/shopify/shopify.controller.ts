@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Post, Param  } from '@nestjs/common';
+import { Controller, Get, Query  } from '@nestjs/common';
 import { ShopifyService } from './shopify.service';
 import { ShopifyStockSyncService } from '../sync/sync.service';
 
@@ -26,24 +26,5 @@ async getAllOrdersStreamed(@Query('limit') limit = 50) {
 
   return { count: orders.length, orders };
 }
-
- @Get('orders-to-cld')
-async syncOrdersToCLD(@Query('limit') limit = 50) {
-  const orders = await this.shopifyStockSyncService.syncAllOrderToCLD(+limit);
-  return { orders };
-}
-
-
-// @Get('check-stock')
-// async checkStockManually() {
-//   const warehouseLocationId = 106864410973;
-
-//   await this.shopifyService.checkAllOrdersAtLocation(warehouseLocationId);
-
-//   return { message: 'Stock check completed' };
-// }
-
-
-
 
 }

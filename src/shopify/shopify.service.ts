@@ -106,45 +106,5 @@ export class ShopifyService {
     }
     console.log("Finished fetching all orders.");
   }
-
-//fulfillment status
-
-// async getFulfillmentOrders(orderId: number) {
-//   const url = `https://${this.store}/admin/api/2024-04/orders/${orderId}/fulfillment_orders.json`;
-//   const response = await axios.get(url, { headers: this.headers });
-//   return response.data.fulfillment_orders;
-// }
-// async createFulfillment(orderId: number) {
-//   // 1. Get fulfillment orders for this order
-//   const fulfillmentOrders = await this.getFulfillmentOrders(orderId);
-
-//   if (!fulfillmentOrders.length) {
-//     throw new Error(`No fulfillment orders found for Shopify order ${orderId}`);
-//   }
-
-//   // 2. Build payload for all fulfillment orders
-//   const lineItemsByFulfillmentOrder = fulfillmentOrders.map((fo: any) => ({
-//     fulfillment_order_id: fo.id,
-//     fulfillment_order_line_items: fo.line_items.map((li: any) => ({
-//       id: li.id,
-//       quantity: li.quantity,
-//     }))
-//   }));
-
-//   const url = `https://${this.store}/admin/api/2024-04/fulfillments.json`;
-//   const payload = {
-//     fulfillment: {
-//       line_items_by_fulfillment_order: lineItemsByFulfillmentOrder,
-//       notify_customer: false // optional
-//     }
-//   };
-
-//   const response = await axios.post(url, payload, { headers: this.headers });
-//   console.log(`🚚 Fulfillment created for order ${orderId}`, response.data.fulfillment);
-//   return response.data.fulfillment;
-// }
-
-
-
   
 }

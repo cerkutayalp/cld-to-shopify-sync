@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body } from "@nestjs/common";
+import { Controller, Get, Post, Body, Query  } from "@nestjs/common";
 import { ShopifyStockSyncService } from "./sync.service";
 import { CldService } from '../cld/cld.service';
 import { ShipmentStatusService, ShipmentStatusPayload } from "../cld/Dto/shipment-status.service";
@@ -7,18 +7,6 @@ import { ShipmentStatusService, ShipmentStatusPayload } from "../cld/Dto/shipmen
 export class SyncController {
   constructor(private readonly syncService: ShopifyStockSyncService, private readonly CldService: CldService , private readonly shipmentStatusService: ShipmentStatusService,) {}
 
-  @Get("sync-stock")
-  async syncStock() {
-    const result = await this.syncService.syncAllStockFromCLD();
-    return {
-      dryRun: true,
-      updatedCount: result.updated.length,
-      skippedCount: result.skipped.length,
-      message: `✅ Synced ${result.updated.length} products.`,
-      updated: result.updated,
-      skipped: result.skipped,
-    };
-  }
 
   // Send all CLD product to Shopify 
   @Post('send-all-products')
@@ -34,6 +22,27 @@ export class SyncController {
       };
     }
   }
+
+    @Get("sync-stock")
+  async syncStock() {
+    const result = await this.syncService.syncAllStockFromCLD();
+    return {
+      dryRun: true,
+      updatedCount: result.updated.length,
+      skippedCount: result.skipped.length,
+      message: `✅ Synced ${result.updated.length} products.`,
+      updated: result.updated,
+      skipped: result.skipped,
+    };
+  }
+
+
+// send all shopify Order to Cld
+  @Get('orders-to-cld')
+async syncOrdersToCLD(@Query('limit') limit = 50) {
+  const orders = await this.syncService.syncAllOrderToCLD(+limit);
+  return { orders };
+}
 
   // ✅ Test endpoint for shipment status payload
  @Post("shipment-status")

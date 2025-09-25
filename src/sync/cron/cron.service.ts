@@ -1,17 +1,26 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { ConfigService } from '@nestjs/config';
 import { CldService } from '../../cld/cld.service';
 import { ShopifyStockSyncService } from '../sync.service';
+
 
 @Injectable()
 export class CronService {
   private readonly logger = new Logger(CronService.name);
 
-  constructor(private readonly cldService: CldService, private readonly syncService: ShopifyStockSyncService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly cldService: CldService,
+    private readonly syncService: ShopifyStockSyncService,
+  ) {}
 
-  @Cron('35 19 * * *') // Every day at 20:00 (8:00 PM)
+  // 🟢 Send all products
+  @Cron('43 18 * * *') // Every day at 02:00 AM
   async handleProductSync() {
-    this.logger.log(`⏰ Running CLD to Shopify sync at ${new Date().toLocaleTimeString()} `);
+    if (this.configService.get<string>('CRON_SEND_ALL_PRODUCTS') !== 'true') return;
+
+    this.logger.log(`⏰ Running product sync at ${new Date().toLocaleTimeString()}`);
     try {
       await this.cldService.sendAllProductsToShopify();
       this.logger.log('✅ Daily product sync completed successfully.');
@@ -20,14 +29,32 @@ export class CronService {
     }
   }
 
-    @Cron('35 19 * * *') // Every day at 20:00 (8:00 PM)
-  async handleOrdersSync() {
-    this.logger.log(`⏰ Running daily CLD to Shopify sync at ${new Date().toLocaleTimeString()} `);
+  // 🟢 Sync stock
+  @Cron('44 18 * * *') // Every day at 03:00 AM
+  async handleStockSync() {
+    if (this.configService.get<string>('CRON_SYNC_STOCK') !== 'true') return;
+
+    this.logger.log(`⏰ Running stock sync at ${new Date().toLocaleTimeString()}`);
     try {
-      await this.syncService.syncAllOrderToCLD(50);
-      this.logger.log('✅ Daily product sync completed successfully.');
+      const result = await this.syncService.syncAllStockFromCLD();
+      this.logger.log(`✅ Stock sync updated ${result.updated.length}, skipped ${result.skipped.length}`);
     } catch (error: any) {
-      this.logger.error('❌ Error during product sync:', error?.message || error);
+      this.logger.error('❌ Error during stock sync:', error?.message || error);
     }
   }
+
+  // 🟢 Sync orders to CLD
+  @Cron('52 18 * * *') // Every day at 04:00 AM
+  async handleOrdersSync() {
+    if (this.configService.get<string>('CRON_ORDERS_TO_CLD') !== 'true') return;
+
+    this.logger.log(`⏰ Running orders-to-cld sync at ${new Date().toLocaleTimeString()}`);
+    try {
+      await this.syncService.syncAllOrderToCLD(50);
+      this.logger.log('✅ Orders-to-CLD sync completed successfully.');
+    } catch (error: any) {
+      this.logger.error('❌ Error during orders sync:', error?.message || error);
+    }
+  }
+
 }
