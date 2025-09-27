@@ -30,7 +30,7 @@ module.exports = {
     {
       name: "prisma-studio",
       script: "npx",
-      args: "prisma studio --port 5555 --hostname 127.0.0.1",
+      args: "prisma studio --port 5555 --hostname 0.0.0.0",
       cwd: "/var/www/cld-to-shopify-sync",
       exec_mode: "fork",
       watch: false,
