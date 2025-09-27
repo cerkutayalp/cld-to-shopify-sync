@@ -5,18 +5,19 @@ module.exports = {
       name: "nest-api",
       script: "node",
       // preload tsconfig-paths so dist can resolve TS aliases
-      args: "-r tsconfig-paths/register --enable-source-maps dist/src/main.js",
+     args: "-r module-alias/register --enable-source-maps dist/src/main.js",    
+//  args: "-r tsconfig-paths/register --enable-source-maps dist/src/main.js",
       cwd: "/var/www/cld-to-shopify-sync",       // <-- match your real path
       instances: 1,                               // or "max" with exec_mode: "cluster"
       exec_mode: "fork",
       watch: false,
       env: {
         NODE_ENV: "development",
-        PORT: "3000",
+        PORT: "3100",
       },
       env_production: {
         NODE_ENV: "production",
-        PORT: "3000",
+        PORT: "3100",
       },
       out_file: "./logs/nest-api.out.log",
       error_file: "./logs/nest-api.err.log",
