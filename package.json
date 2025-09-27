@@ -5,7 +5,9 @@
   "scripts": {
     "start": "nest start",
     "start:dev": "nest start --watch",
+    "start:prod": "node -r tsconfig-paths/register --enable-source-maps dist/src/main.js",
     "build": "tsc",
+    "postinstall": "prisma generate",
     "test:sync": "ts-node -r tsconfig-paths/register scripts/test-sync.ts"
   },
   "dependencies": {
