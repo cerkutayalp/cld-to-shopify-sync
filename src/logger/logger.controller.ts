@@ -5,8 +5,18 @@ import { LoggerService } from './logger.service';
 export class LoggerController {
   constructor(private readonly loggerService: LoggerService) {}
 
-  @Get('/logs')
-  getLogs(): any[] {
-    return this.loggerService.getAllLogs();
+  @Get('/products')
+  getProductLogs() {
+    return this.loggerService.getAllProductLogs();
+  }
+
+  @Get('/stocks')
+  getStockLogs() {
+    return this.loggerService.getAllStockLogs();
+  }
+
+  @Get('/orders')
+  getOrderLogs() {
+    return this.loggerService.getAllOrderLogs();
   }
 }

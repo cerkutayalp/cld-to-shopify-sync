@@ -28,7 +28,7 @@ export class CldService {
   private token: string = "";
   private readonly apiUrl: string;
   private readonly apiKey: string;
-  private readonly isTestMode: boolean;
+
 
   constructor(
     private configService: ConfigService,
@@ -36,8 +36,8 @@ export class CldService {
   ) {
     this.apiUrl = this.configService.get<string>("CLD_API_URL")!;
     this.apiKey = this.configService.get<string>("CLD_API_KEY")!;
-    this.isTestMode =
-      this.configService.get<string>("SHOPIFY_TEST_MODE") === "true";
+    
+    
     console.log("🧪 LoggerService injected?", !!this.loggerService);
   }
 

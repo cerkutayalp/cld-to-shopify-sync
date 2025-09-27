@@ -1,125 +1,121 @@
-console.log ('workinggggg')
 import { Injectable } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
+import { PrismaService } from '../prisma/prisma.service'; // your prisma service
 
 @Injectable()
 export class LoggerService {
-  private readonly logDir = path.join(__dirname, '../../logs');
-  private readonly logFilePath = path.join(this.logDir, 'shopify-actions.json');
-constructor() {
-    console.log('🧾 logFilePath:', this.logFilePath);
-  }
+  constructor(private prisma: PrismaService) {}
 
-  private ensureLogDirExists() {
-    if (!fs.existsSync(this.logDir)) {
-      fs.mkdirSync(this.logDir, { recursive: true }); //create logs/ if missing
-    }
-  }
-
-  private writeJsonLog(entry: Record<string, any>) {
-    this.ensureLogDirExists(); //ensure folder exists before write
-   
-    fs.appendFileSync(this.logFilePath, JSON.stringify(entry, null, 2));
-  }
-  
-
-  private readLogs(): any[] {
-    try {
-      if (fs.existsSync(this.logFilePath)) {
-        const data = fs.readFileSync(this.logFilePath, 'utf8');
-        return JSON.parse(data || '[]');
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  }
-
-  // Required by NestJS LoggerService interface:
-  log(message: any, ...optionalParams: any[]) {
+  // ---- NestJS built-in style ----
+  async log(message: any, ...optionalParams: any[]) {
     console.log(message, ...optionalParams);
-  }
-
-  error(message: any, trace?: string, ...optionalParams: any[]) {
-    console.error(message, trace || '', ...optionalParams);
-    // Optional: also write to file
-    this.writeJsonLog({
-      timestamp: new Date().toISOString(),
-      level: 'ERROR',
-      message,
-      trace,
-      context: optionalParams,
+    await this.prisma.productLog.create({
+      data: {
+        action: 'LOG',
+        sku: 'N/A',
+        title: '',
+        notes: message,
+        data: optionalParams as any,
+      },
     });
   }
 
-  warn(message: any, ...optionalParams: any[]) {
+  async error(message: any, trace?: string, ...optionalParams: any[]) {
+    console.error(message, trace || '', ...optionalParams);
+    await this.prisma.productLog.create({
+      data: {
+        action: 'ERROR',
+        sku: 'N/A',
+        title: '',
+        notes: `${message} | ${trace || ''}`,
+        data: optionalParams as any,
+      },
+    });
+  }
+
+  async warn(message: any, ...optionalParams: any[]) {
     console.warn(message, ...optionalParams);
+    await this.prisma.productLog.create({
+      data: {
+        action: 'WARN',
+        sku: 'N/A',
+        title: '',
+        notes: message,
+        data: optionalParams as any,
+      },
+    });
   }
 
-  logProductAction(action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SKIPPED', productData: any, notes = '') {
-     console.log('🔍 logProductAction CALLED with', { action, sku: productData?.variants?.[0]?.sku });
-    const logEntry = {
-      timestamp: new Date().toISOString(),
-      action,
-      sku: productData?.variants?.[0]?.sku || 'N/A',
-      title: productData?.title || '',
-      notes,
-      data: productData,
-    };
+  // ---- Domain-specific loggers ----
+  async logProductAction(
+    action: 'CREATE' | 'UPDATE' | 'DELETE' | 'SKIPPED' | 'ERROR',
+    productData: any,
+    notes = ''
+  ) {
+    const sku = productData?.variants?.[0]?.sku || 'N/A';
+    const title = productData?.title || '';
 
-    this.writeJsonLog(logEntry);
+    await this.prisma.productLog.create({
+      data: {
+        action,
+        sku,
+        title,
+        notes,
+        data: productData,
+      },
+    });
   }
 
-  logStockSync(action: 'UPDATE' | 'SKIP' | 'ERROR', stockData: any, notes = '') {
-  const logEntry = {
-    timestamp: new Date().toISOString(),
-    action,
-    sku: stockData?.sku || 'N/A',
-    notes,
-    data: stockData,
-  };
+  async logStockSync(
+    action: 'UPDATE' | 'SKIP' | 'ERROR',
+    stockData: any,
+    notes = ''
+  ) {
+    await this.prisma.stockLog.create({
+      data: {
+        action,
+        sku: stockData?.sku || 'N/A',
+        notes,
+        data: stockData,
+      },
+    });
+  }
 
-  const stockLogPath = path.join(this.logDir, 'stock-sync.json');
-  this.ensureLogDirExists();
+  async logOrderAction(
+    action:
+      | 'RECEIVED'
+      | 'MAPPED'
+      | 'PLACED'
+      | 'ERROR'
+      | 'SKIPPED'
+      | 'FULFILLED'
+      | 'TRACKING_FETCHED'
+      | 'TRACKING_FOUND'
+      | 'FULFILLMENT_CREATED'
+      | 'TRACKING_MISSING',
+    orderData: any,
+    notes = ''
+  ) {
+    await this.prisma.orderLog.create({
+      data: {
+        action,
+        shopifyOrderId: orderData?.id?.toString() || 'N/A',
+        notes,
+        data: orderData,
+      },
+    });
+  }
 
-  const existingLogs = fs.existsSync(stockLogPath)
-    ? JSON.parse(fs.readFileSync(stockLogPath, 'utf8') || '[]')
-    : [];
+  // ---- Retrieve ----
+  async getAllProductLogs() {
+    return this.prisma.productLog.findMany({ orderBy: { timestamp: 'desc' } });
+  }
 
-  existingLogs.push(logEntry);
-  fs.writeFileSync(stockLogPath, JSON.stringify(existingLogs, null, 2));
+  async getAllStockLogs() {
+    return this.prisma.stockLog.findMany({ orderBy: { timestamp: 'desc' } });
+  }
+
+  async getAllOrderLogs() {
+    return this.prisma.orderLog.findMany({ orderBy: { timestamp: 'desc' } });
+  }
 }
-
-//logger for Orders
-logOrderAction(action: 'RECEIVED' | 'MAPPED' | 'PLACED' | 'ERROR' | 'SKIPPED' | 'FULFILLED' | "TRACKING_FETCHED" | "TRACKING_FOUND" | "FULFILLMENT_CREATED"
-  | "TRACKING_MISSING", orderData: any, notes = '') {
-  const orderLogPath = path.join(this.logDir, 'shopify-orders.json');
-  this.ensureLogDirExists();
-
-  const logEntry = {
-    timestamp: new Date().toISOString(),
-    action,
-    shopifyOrderId: orderData?.id || 'N/A',
-    notes,
-    data: orderData,
-  };
-
-  const existingLogs = fs.existsSync(orderLogPath)
-    ? JSON.parse(fs.readFileSync(orderLogPath, 'utf8') || '[]')
-    : [];
-
-  existingLogs.push(logEntry);
-  fs.writeFileSync(orderLogPath, JSON.stringify(existingLogs, null, 2));
-}
-
-
-  getAllLogs(): any[] {
-    return this.readLogs();
-  }
-
-  clearLogs() {
-    this.ensureLogDirExists();
-    fs.writeFileSync(this.logFilePath, '[]');
-  }
-}
+  

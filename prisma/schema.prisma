@@ -1,0 +1,36 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model ProductLog {
+  id        Int      @id @default(autoincrement())
+  timestamp DateTime @default(now())
+  action    String
+  sku       String
+  title     String?
+  notes     String?
+  data      Json
+}
+
+model StockLog {
+  id        Int      @id @default(autoincrement())
+  timestamp DateTime @default(now())
+  action    String
+  sku       String
+  notes     String?
+  data      Json
+}
+
+model OrderLog {
+  id            Int      @id @default(autoincrement())
+  timestamp     DateTime @default(now())
+  action        String
+  shopifyOrderId String
+  notes         String?
+  data          Json
+}
