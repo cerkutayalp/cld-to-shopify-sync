@@ -67,7 +67,7 @@ export class ShopifyStockSyncService {
   ) {
     this.shopifyApiUrl = configService.get<string>("SHOPIFY_API_URL")!;
     this.shopifyToken = configService.get<string>("SHOPIFY_ACCESS_TOKEN")!;
-    this.cldWarehouseId = configService.get<string>("CLD_WAREHOUSE_ID")!;
+    this.cldWarehouseId = configService.get<string>("SHOPIFY_LOCATION_ID")!;
   }
   // TODO MOVE TO SHOPIFY_SERVICE
   async *getShopifyProductsPaginated() {
