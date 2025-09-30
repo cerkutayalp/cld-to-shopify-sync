@@ -4,7 +4,7 @@ import { CldService } from "../cld/cld.service";
 import { ConfigService } from "@nestjs/config";
 import { Product } from "../cld/Dto/CldProductResponse";
 import { LoggerService } from "../logger/logger.service";
-import { ShopifyService } from "src/shopify/shopify.service";
+import { ShopifyService } from "../../src/shopify/shopify.service";
 import { OrderPayload } from '../cld/Dto/OrderPayload';
 import { ShopifyOrder } from '../shopify/Dto/ShopifyOrderResponse';
 
