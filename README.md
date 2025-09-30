@@ -1,6 +1,6 @@
 ## CLD to Shopify Sync
 
-A Node.js service for synchronizing products, stock, and orders between a CLD system and Shopify. Built with NestJS, mysqlite
+A Node.js service for synchronizing products, stock, and orders between a [CLD system](https://cld.eu/en) and Shopify. Built with NestJS, mysqlite
 Prisma, and cron jobs for automated syncing.
 
 ---
@@ -146,11 +146,6 @@ scripts/       # Utility scripts
 - **Sync products:** `POST /shopify/send-all-products`
 - **Sync stock:** `GET /shopify/sync-stock`
 - **Sync orders:** `GET /shopify/orders-to-cld`
-- **View logs:**  
-  - Products: `GET /logger/products`  
-  - Stock: `GET /logger/stocks`  
-  - Orders: `GET /logger/orders`
-
 ---
 
 ## 🧪 Testing
