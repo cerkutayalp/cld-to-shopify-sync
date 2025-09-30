@@ -160,16 +160,26 @@ npm run test
 
 ## Deploying on Production
 
-cd /var/www/ 
+cd /var/www/
+
 git clone https://github.com/cerkutayalp/cld-to-shopify-sync.git
+
 cd /var/www/cld-to-shopify-sync
+
 npm i
+
 npm i pm2
+
 npm ci
-npx prisma generate 
+
+npx prisma generate
+
 npx prisma migrate dev --name init_logger
-npm run build  
+
+npm run build
+
 pm2 start ecosystem.config.js --env production
+
 pm2 logs
 
 
