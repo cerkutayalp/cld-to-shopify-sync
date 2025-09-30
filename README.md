@@ -1,6 +1,6 @@
 ## CLD to Shopify Sync
 
-A Node.js service for synchronizing products, stock, and orders between a CLD system and Shopify. Built with NestJS, mysqlite
+A Node.js service for synchronizing products, stock, and orders between a [CLD system](https://cld.eu/en) and Shopify. Built with NestJS, mysqlite
 Prisma, and cron jobs for automated syncing.
 
 ---
@@ -43,9 +43,9 @@ scripts/       # Utility scripts
 ## - **How to add .env** 
   
   1. SHOPIFY_STORE=<your_shopify_store_id.myshopify.com>
-    
+    ![shop_id](./images/Shopify%20Shop%20id.png)
     Example, where to get store id
-     ![shop_id](./images/Shopify%20Shop%20id.png)
+     
      Copy store id from the URL of shopify store then paste it on .env SHOPIFY_STORE= replace with your_shopify_store_id,
      
      looks like
@@ -94,7 +94,7 @@ scripts/       # Utility scripts
      👉 The number at the end of the URL is your **location ID**.
          Copy it and paste in .env SHOPIFY_LOCATION_ID
 
-         ![Location_id](./images/Location_id.png)
+  ![Location_id](./images/Location_id.png)   
 
   5. CLD_API_URL=<cld_api_url>
      Cld will provide you Api url
@@ -146,11 +146,6 @@ scripts/       # Utility scripts
 - **Sync products:** `POST /shopify/send-all-products`
 - **Sync stock:** `GET /shopify/sync-stock`
 - **Sync orders:** `GET /shopify/orders-to-cld`
-- **View logs:**  
-  - Products: `GET /logger/products`  
-  - Stock: `GET /logger/stocks`  
-  - Orders: `GET /logger/orders`
-
 ---
 
 ## 🧪 Testing
