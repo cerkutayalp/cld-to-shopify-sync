@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { CldService } from '../../cld/cld.service';
@@ -6,7 +6,7 @@ import { ShopifyStockSyncService } from '../sync.service';
 
 
 @Injectable()
-export class CronService {
+export class CronService implements OnApplicationBootstrap {
   private readonly logger = new Logger(CronService.name);
 
   constructor(
@@ -15,10 +15,23 @@ export class CronService {
     private readonly syncService: ShopifyStockSyncService,
   ) {}
 
+ async onApplicationBootstrap() {
+    // ✅ Control bootstrap sync execution via env
+    const runOnBootstrap = this.configService.get<boolean>('RUN_BOOTSTRAP_SYNC');
+
+    if (runOnBootstrap ) {
+      this.logger.log('🚀 Bootstrap sync enabled — executing startup syncs...');
+      await this.handleOrdersSync();
+      await this.handleStockSync();
+    } else {
+      this.logger.log('⏸ Bootstrap sync disabled — skipping startup syncs.');
+    }
+  }
+
   // 🟢 Send all products
-  @Cron('0 */4 * * *') // runs at minute 0, every 4th hour
+  @Cron('0 0 */4 * * *') // runs at minute 0, every 4th hour
   async handleProductSync() {
-    if (this.configService.get<string>('CRON_SEND_ALL_PRODUCTS') !== 'true') return;
+    if (!this.configService.get<boolean>('CRON_SEND_ALL_PRODUCTS')) return;
 
     this.logger.log(`⏰ Running product sync at ${new Date().toLocaleTimeString()}`);
     try {
@@ -30,10 +43,9 @@ export class CronService {
   }
 
   // 🟢 Sync stock
-  @Cron('44 18 * * *') // Every day at 03:00 AM
-  @Cron('0 */4 * * *') // runs at minute 0, every 4th hour
+  @Cron('0 0 */4 * * *')// runs at minute 0, every 4th hour
   async handleStockSync() {
-    if (this.configService.get<string>('CRON_SYNC_STOCK') !== 'true') return;
+    if (!this.configService.get<boolean>('CRON_SYNC_STOCK')) return;
 
     this.logger.log(`⏰ Running stock sync at ${new Date().toLocaleTimeString()}`);
     try {
@@ -45,10 +57,9 @@ export class CronService {
   }
 
   // 🟢 Sync orders to CLD
-  @Cron('52 18 * * *') // Every day at 04:00 AM
-  @Cron('0 */4 * * *') // runs at minute 0, every 4th hour
+  @Cron('0 0 */4 * * *') // runs at minute 0, every 4th hour
   async handleOrdersSync() {
-    if (this.configService.get<string>('CRON_ORDERS_TO_CLD') !== 'true') return;
+    if (!this.configService.get<boolean>('CRON_ORDERS_TO_CLD')) return;
 
     this.logger.log(`⏰ Running orders-to-cld sync at ${new Date().toLocaleTimeString()}`);
     try {

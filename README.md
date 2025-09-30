@@ -45,7 +45,7 @@ scripts/       # Utility scripts
   1. SHOPIFY_STORE=<your_shopify_store_id.myshopify.com>
     
     Example, where to get store id
-    ![[Shopify Store Id.png]]
+     ![shop_id](./images/Shopify%20Shop%20id.png)
      Copy store id from the URL of shopify store then paste it on .env SHOPIFY_STORE= replace with your_shopify_store_id,
      
      looks like
@@ -94,6 +94,8 @@ scripts/       # Utility scripts
      👉 The number at the end of the URL is your **location ID**.
          Copy it and paste in .env SHOPIFY_LOCATION_ID
 
+         ![Location_id](./images/Location_id.png)
+
   5. CLD_API_URL=<cld_api_url>
      Cld will provide you Api url
 
@@ -104,21 +106,24 @@ scripts/       # Utility scripts
     cld login password
 
   8. CLD_API_KEY=<your_cld_api_key>
-    - Log in to **CLD Dashboard → Profile Settings → API Key → Create Key**.
-    -  Copy & paste it into `.env`.
-    ![[CLD API Key Generate.png]]
+     - Log in to **CLD Dashboard → Profile Settings → API Key → Create Key**.
+     -  Copy & paste it into `.env`.
+     ![CLD_API](./images/CLD%20API%20Key%20Generate.png)
 
 
   9. CRON_SEND_ALL_PRODUCTS=<true or false>
-    if it's True it will auto sync cld product to your Shopify Store. 
+     - if it's True it will auto sync cld product to your Shopify Store. 
 
   
  10. CRON_SYNC_STOCK=<true or false>
-    it will update cld product stock to you shopify store
+     - it will update cld product stock to you shopify store
   
  11. CRON_ORDERS_TO_CLD=<true or false>
-   it will place shopify order to cld.
+     - it will place shopify order to cld.
 
+ 12. RUN_BOOTSTRAP_SYNC=<true or false>
+     - If RUN_BOOTSTRAP_SYNC=true → runs handleOrdersSync() and handleStockSync() right after app starts.
+     - If RUN_BOOTSTRAP_SYNC=false (or not set) → skips them on startup.
 ---
 
 ## Run Data base
