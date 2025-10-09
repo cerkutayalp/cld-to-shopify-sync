@@ -56,7 +56,7 @@ scripts/       # Utility scripts
     SHOPIFY_API_URL=<https://your_shopify_store_id.myshopify.com>
     
     Now it will look like 
-    SHOPIFY_API_URL=<https://xqw1233-yn.myshopify.com>
+    SHOPIFY_API_URL=https://xqw1233-yn.myshopify.com
 
   3. SHOPIFY_ACCESS_TOKEN=<your_shopify_access_token>
   
