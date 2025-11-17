@@ -9,6 +9,7 @@ import { ShopifyStockSyncService } from '../sync/sync.service';
 import { CldService } from '../cld/cld.service';
 import { LoggerModule } from '../logger/logger.module';
 import { ShipmentStatusService  } from '../cld/Dto/shipment-status.service';
+import { LoggerService } from 'src/logger/logger.service';
 
 @Module({
   imports: [ConfigModule, LoggerModule],
@@ -18,6 +19,7 @@ import { ShipmentStatusService  } from '../cld/Dto/shipment-status.service';
     ShopifyStockSyncService,
     CldService,
     ShipmentStatusService ,
+    LoggerService,
   ],
   exports: [ShopifyService],
 })

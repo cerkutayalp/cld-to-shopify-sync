@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { CldService } from '../../cld/cld.service';
+import { ShopifyService } from '../../shopify/shopify.service';
 import { ShopifyStockSyncService } from '../sync.service';
 
 
@@ -12,30 +13,35 @@ export class CronService implements OnApplicationBootstrap {
   constructor(
     private readonly configService: ConfigService,
     private readonly cldService: CldService,
+    private readonly ShopifyService: ShopifyService,
     private readonly syncService: ShopifyStockSyncService,
   ) {}
 
  async onApplicationBootstrap() {
     // ✅ Control bootstrap sync execution via env
     const runOnBootstrap = this.configService.get<boolean>('RUN_BOOTSTRAP_SYNC');
-
-    if (runOnBootstrap ) {
+console.log('RUN_BOOTSTRAP_SYNC:', runOnBootstrap);
+    if (runOnBootstrap===true ) {
       this.logger.log('🚀 Bootstrap sync enabled — executing startup syncs...');
-      await this.handleOrdersSync();
-      await this.handleStockSync();
+      // await this.handleOrdersSync();
+      // await this.handleStockSync();
     } else {
       this.logger.log('⏸ Bootstrap sync disabled — skipping startup syncs.');
     }
   }
 
+  private isEnabled(key: string): boolean {
+  return this.configService.get<string>(key) === 'true';
+}
+
   // 🟢 Send all products
-  @Cron('0 0 */4 * * *') // runs at minute 0, every 4th hour
+  @Cron('0 0 */4 * * *')// runs at minute 0, every 4th hour
   async handleProductSync() {
-    if (!this.configService.get<boolean>('CRON_SEND_ALL_PRODUCTS')) return;
+    if (!this.isEnabled('CRON_SEND_ALL_PRODUCTS')) return;
 
     this.logger.log(`⏰ Running product sync at ${new Date().toLocaleTimeString()}`);
     try {
-      await this.cldService.sendAllProductsToShopify();
+      await this.ShopifyService.sendAllProductsToShopify();
       this.logger.log('✅ Daily product sync completed successfully.');
     } catch (error: any) {
       this.logger.error('❌ Error during product sync:', error?.message || error);
@@ -45,7 +51,7 @@ export class CronService implements OnApplicationBootstrap {
   // 🟢 Sync stock
   @Cron('0 0 */4 * * *')// runs at minute 0, every 4th hour
   async handleStockSync() {
-    if (!this.configService.get<boolean>('CRON_SYNC_STOCK')) return;
+    if (this.isEnabled('CRON_SYNC_STOCK')) return;
 
     this.logger.log(`⏰ Running stock sync at ${new Date().toLocaleTimeString()}`);
     try {
@@ -59,7 +65,7 @@ export class CronService implements OnApplicationBootstrap {
   // 🟢 Sync orders to CLD
   @Cron('0 0 */4 * * *') // runs at minute 0, every 4th hour
   async handleOrdersSync() {
-    if (!this.configService.get<boolean>('CRON_ORDERS_TO_CLD')) return;
+    if (!this.isEnabled('CRON_ORDERS_TO_CLD')) return;
 
     this.logger.log(`⏰ Running orders-to-cld sync at ${new Date().toLocaleTimeString()}`);
     try {

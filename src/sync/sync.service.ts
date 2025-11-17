@@ -95,7 +95,6 @@ export class ShopifyStockSyncService {
     );
     return shopifyVariantsMap;
   }
-  // TODO MOVE TO SHOPIFY_SERVICE
 
   async enableInventoryManagement(
     sku: string,
@@ -144,7 +143,6 @@ export class ShopifyStockSyncService {
     return res.data.locations;
   }
 
-  // TODO MOVE TO SHOPIFY_SERVICE
   //TODO Use Bulk stock request
   async updateShopifyVariantStockHandler({
     shopifyProducts,
@@ -431,6 +429,7 @@ async syncAllOrderToCLD(page_size = 50) {
     for (const order of batch.orders) {
       try {
         console.log(`\n📦 Processing Shopify order ${order.id}`);
+        console.log("🧾 Full Shopify order data:", JSON.stringify(order, null, 2));
         // Log RECEIVED
         this.loggerService.logOrderAction('RECEIVED', order);
 
@@ -515,6 +514,18 @@ async syncAllOrderToCLD(page_size = 50) {
       //  yield { shopifyOrderId: order.id, cldOrderId: placedOrder.orderId };
       } catch (err: any) {
         console.error(`❌ Failed to sync order ${order.id} to CLD:`, err.message);
+
+         // Print everything we can about the error
+  // if (err.response) {
+  //   console.error("🧾 CLD Response Data:", err.response.data);
+  //   console.error("📡 CLD Response Status:", err.response.status);
+  //   console.error("📨 CLD Response Headers:", err.response.headers);
+  // } else if (err.request) {
+  //   console.error("📭 No response received from CLD:", err.request);
+  // } else {
+  //   console.error("⚙️ Error Message:", err.message);
+  // }
+
 
         // Log ERROR
         this.loggerService.logOrderAction('ERROR', order, err.message);
