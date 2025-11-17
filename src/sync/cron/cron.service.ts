@@ -16,23 +16,23 @@ export class CronService implements OnApplicationBootstrap {
     private readonly ShopifyService: ShopifyService,
     private readonly syncService: ShopifyStockSyncService,
   ) {}
+  
+  private isEnabled(key: string): boolean {
+  return this.configService.get<string>(key) === 'true';}
 
  async onApplicationBootstrap() {
     // ✅ Control bootstrap sync execution via env
-    const runOnBootstrap = this.configService.get<boolean>('RUN_BOOTSTRAP_SYNC');
-console.log('RUN_BOOTSTRAP_SYNC:', runOnBootstrap);
-    if (runOnBootstrap===true ) {
+    const runOnBootstrap = this.isEnabled('RUN_BOOTSTRAP_SYNC');
+     console.log('RUN_BOOTSTRAP_SYNC:', runOnBootstrap);
+    if (runOnBootstrap ) {
       this.logger.log('🚀 Bootstrap sync enabled — executing startup syncs...');
-      // await this.handleOrdersSync();
-      // await this.handleStockSync();
+      await this.handleOrdersSync();
+      await this.handleStockSync();
     } else {
       this.logger.log('⏸ Bootstrap sync disabled — skipping startup syncs.');
     }
   }
 
-  private isEnabled(key: string): boolean {
-  return this.configService.get<string>(key) === 'true';
-}
 
   // 🟢 Send all products
   @Cron('0 0 */4 * * *')// runs at minute 0, every 4th hour
@@ -51,7 +51,7 @@ console.log('RUN_BOOTSTRAP_SYNC:', runOnBootstrap);
   // 🟢 Sync stock
   @Cron('0 0 */4 * * *')// runs at minute 0, every 4th hour
   async handleStockSync() {
-    if (this.isEnabled('CRON_SYNC_STOCK')) return;
+    if (!this.isEnabled('CRON_SYNC_STOCK')) return;
 
     this.logger.log(`⏰ Running stock sync at ${new Date().toLocaleTimeString()}`);
     try {
