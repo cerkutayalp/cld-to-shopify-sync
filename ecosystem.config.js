@@ -3,7 +3,6 @@ module.exports = {
   apps: [
     {
       name: "nest-api",
-      script: "node",
       // preload tsconfig-paths so dist can resolve TS aliases
      args: "-r module-alias/register --enable-source-maps dist/src/main.js",    
 //  args: "-r tsconfig-paths/register --enable-source-maps dist/src/main.js",
