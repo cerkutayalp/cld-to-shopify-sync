@@ -9,6 +9,8 @@ module.exports = {
 //  args: "-r tsconfig-paths/register --enable-source-maps dist/src/main.js",
       cwd: "/var/www/cld-to-shopify-sync",       // <-- match your real path
       instances: 1,                               // or "max" with exec_mode: "cluster"
+      script: "dist/src/main.js",          // <-- your compiled entry
+      node_args: "-r module-alias/register --enable-source-maps", // preload module-alias
       exec_mode: "fork",
       watch: false,
       env: {
