@@ -27,10 +27,19 @@ model StockLog {
 }
 
 model OrderLog {
-  id            Int      @id @default(autoincrement())
-  timestamp     DateTime @default(now())
-  action        String
-  shopifyOrderId String
-  notes         String?
-  data          Json
+  id               Int      @id @default(autoincrement())
+  timestamp        DateTime @default(now())
+  action           String
+
+  // Shopify Fields
+  shopifyOrderId    String?
+  shopifyCustomerId String?
+  shopifyData       Json?
+
+  // CLD Fields
+  cldOrderId        String?
+  cldCustomerId     String?
+  cldData           Json?
+
+  notes             String?
 }

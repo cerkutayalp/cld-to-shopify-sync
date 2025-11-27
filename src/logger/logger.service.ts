@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service'; // your prisma service
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class LoggerService {
@@ -92,15 +92,25 @@ export class LoggerService {
       | 'TRACKING_FOUND'
       | 'FULFILLMENT_CREATED'
       | 'TRACKING_MISSING',
-    orderData: any,
+
+    shopifyOrder: any = null,
+    cldResponse: any = null,
     notes = ''
   ) {
     await this.prisma.orderLog.create({
       data: {
         action,
-        shopifyOrderId: orderData?.id?.toString() || 'N/A',
+        // Shopify
+        shopifyOrderId: shopifyOrder?.id?.toString() ?? null,
+        shopifyCustomerId: shopifyOrder?.customer?.id?.toString() ?? null,
+        shopifyData: shopifyOrder,
+
+        // CLD
+        cldCustomerId: cldResponse?.customerId ?? null,
+        cldOrderId: cldResponse?.orderId ?? null,
+        cldData: cldResponse,
+
         notes,
-        data: orderData,
       },
     });
   }

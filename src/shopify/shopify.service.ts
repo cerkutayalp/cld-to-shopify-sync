@@ -58,7 +58,7 @@ export class ShopifyService {
     const baseUrl = `https://${this.store}/admin/api/2024-04/orders.json`;
 
     do {
-      const url = `${baseUrl}?status=any&financial_status=paid&limit=${limit}${pageInfo}`;
+      const url = `${baseUrl}?status=open&financial_status=paid&fulfillment_status=unfulfilled&limit=${limit}${pageInfo}`;
       const response = await axios.get(url, {
         headers: {
           "X-Shopify-Access-Token": this.token,
@@ -70,7 +70,7 @@ export class ShopifyService {
 
 
        // High-level log for Fulfillment batch
-      console.log(`Fetched ${orders.orders.length} orders in this batch`);
+      console.log(`Fetched ${orders.orders.length} unfulfilled orders in this batch.`);
       orders.orders.forEach((order) => {
         if (!order.fulfillments || order.fulfillments.length === 0) {
           console.log(`Order ${order.id}: NO FULFILLMENT`);
