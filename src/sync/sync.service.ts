@@ -410,7 +410,7 @@ export class ShopifyStockSyncService {
     for await (const batch of this.shopifyService.getOrdersPaginated(page_size)) {
       for (const order of batch.orders) {
         console.log(`\n📦 Processing Shopify order ${order.id}`);
-        console.log("🧾 Full Shopify order data:", JSON.stringify(order, null, 2));
+        // console.log("🧾 Full Shopify order data:", JSON.stringify(order, null, 2));
 
         try {
           // ------------------------
@@ -429,25 +429,25 @@ export class ShopifyStockSyncService {
           // ------------------------
           // 2. CHECK EXISTING CLD ORDER
           // ------------------------
-          const alreadyInCld = await this.cldService.findOrderByShopifyId(
-            order.id.toString()
-          );
+          // const alreadyInCld = await this.cldService.findOrderByShopifyId(
+          //   order.id.toString()
+          // );
 
-          if (alreadyInCld) {
-            console.log(`⏭ Skipping order ${order.id} (already in CLD).`);
-            this.loggerService.logOrderAction(
-              "SKIPPED",
-              order,
-              "Order already placed in CLD"
-            );
-            continue;
-          }
+          // if (alreadyInCld) {
+          //   console.log(`⏭ Skipping order ${order.id} (already in CLD).`);
+          //   this.loggerService.logOrderAction(
+          //     "SKIPPED",
+          //     order,
+          //     "Order already placed in CLD"
+          //   );
+          //   continue;
+          // }
 
           // ------------------------
           // 3. CREATE CLD CART
           // ------------------------
           const { cartId } = await this.cldService.createCldCart();
-          console.log(`🛒 Created CLD cart: ${cartId}`);
+          console.log(`SyncAll-Order-To-CLD: Created CLD cart: ${cartId}`);
 
           // Only include manual fulfillment items
           const cldItems = order.line_items
@@ -471,8 +471,8 @@ export class ShopifyStockSyncService {
           // ------------------------
           // 4. ADD ITEMS TO CART
           // ------------------------
-          await this.cldService.addItemsToCldCart(cartId, cldItems);
-          console.log("➕ Added items to CLD cart.");
+       const cart =   await this.cldService.addItemsToCldCart(cartId, cldItems);
+          console.log("➕ Added items to CLD cart.",cart);
 
           // ------------------------
           // 5. GET CLD CART (VERIFY)
@@ -493,7 +493,7 @@ export class ShopifyStockSyncService {
           // 7. PLACE ORDER IN CLD
           // ------------------------
           const placedOrder = await this.cldService.placeOrder(orderPayload);
-          console.log("✅ Placed order in CLD:", placedOrder);
+          console.log("Placing order in CLD Response:", placedOrder);
 
           // Log PLACED
           await this.loggerService.logOrderAction(
@@ -509,7 +509,7 @@ export class ShopifyStockSyncService {
           const isPaid = order.financial_status === "paid";
           const isFulfilled = order.fulfillment_status === "fulfilled";
 
-          if (isPaid && !isFulfilled) {
+          if (isPaid && !isFulfilled && placedOrder.status) {
             console.log(
               `🚀 Fulfilling order ${order.id} AFTER CLD placement...`
             );

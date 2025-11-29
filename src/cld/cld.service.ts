@@ -29,15 +29,13 @@ export class CldService {
   private readonly apiUrl: string;
   private readonly apiKey: string;
 
-
   constructor(
     private configService: ConfigService,
     private readonly loggerService: LoggerService
   ) {
     this.apiUrl = this.configService.get<string>("CLD_API_URL")!;
     this.apiKey = this.configService.get<string>("CLD_API_KEY")!;
-    
-    
+
     console.log("🧪 LoggerService injected?", !!this.loggerService);
   }
 
@@ -153,7 +151,6 @@ export class CldService {
     }
   }
 
-
   //#region Create Cart in CLD.
 
   async createCldCart(): Promise<{ cartId: string }> {
@@ -185,24 +182,28 @@ export class CldService {
     if (!this.token) {
       this.token = await this.getAuthToken();
     }
-
+    console.log("Adding items to CLD cart:", { cartId, items });
     const url = `${this.apiUrl}/Dropshiping/cart/add`;
 
     const payload = {
       items,
       cartId,
     };
-
-    const response = await axios.post(url, payload, {
-      headers: {
-        accept: "text/plain",
-        Authorization: `Bearer ${this.token}`,
-        "Content-Type": "application/json-patch+json",
-      },
-      maxBodyLength: Infinity,
-    });
-    console.log("add cartt rsponse ", response.data);
-    return response.data;
+    try {
+      const response = await axios.post(url, payload, {
+        headers: {
+          accept: "text/plain",
+          Authorization: `Bearer ${this.token}`,
+          "Content-Type": "application/json-patch+json",
+        },
+        maxBodyLength: Infinity,
+      });
+      console.log("add cart rsponse ", response.data);
+      return response.data;
+    } catch (error) {
+      console.error("❌ Error adding items to CLD cart:", error);
+      throw error;
+    }
   }
 
   async getCldCart(cartId: string) {
@@ -235,10 +236,7 @@ export class CldService {
     const url = `${this.apiUrl}/Dropshiping/order/place`;
 
     try {
-      console.log(
-        "📤 [1] Sending order payload to CLD:",
-        (order)
-      );
+      console.log(order, "\nPLACE_ORDER: Sending order payload to CLD");
       const response = await axios.post<PlaceOrderResponse>(url, order, {
         headers: {
           accept: "*/*",
@@ -247,31 +245,24 @@ export class CldService {
         },
         maxBodyLength: Infinity,
       });
-      //1 print
-      console.log(
-        "📥 [2] Raw response from CLD:",
-        (response.data)
-      );
 
       if (!response.data?.status) {
-        //2 print
-        console.log(
-          "✅ [4] CLD order placed successfully with status:",
-          response.data
-        );  
+        //Failed ...
+        console.log("PLACE_ORDER: ERROR CLD order placement:", response.data);
         throw new Error(
           `CLD order placement failed: ${
             response.data?.message || "Unknown error"
           }`
         );
+      } else {
+        // Success
+        console.log("PLACE_ORDER: Raw response from CLD:", response.data);
       }
-      //3 print
-      console.log("✅ [4] CLD order message :", response.data.message);
 
       return response.data;
     } catch (error: any) {
       //4 print
-      console.log("✅ [4] CLD order placed successfully with status:", error);
+      console.log("PLACE_ORDER: ERROR [4] CLD order with status:", error);
       this.loggerService.error(
         `❌ Failed to place order in CLD: ${error.message}`
       );
@@ -297,7 +288,7 @@ export class CldService {
       throw e; // only throw if it's not "not found"
     }
   }
-  
+
   //#region get Tracking url from cld
   async getTrackingUrl(orderId: string, docType: string, docNumber: string) {
     try {
