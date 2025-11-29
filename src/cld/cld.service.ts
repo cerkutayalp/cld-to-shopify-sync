@@ -272,12 +272,17 @@ export class CldService {
 
   async findOrderByShopifyId(shopifyOrderId: string): Promise<any | null> {
     try {
-      const response = await axios.get(
-        `${this.apiUrl}/orders/${shopifyOrderId}`,
-        {
-          headers: { Authorization: `Bearer ${this.token}` },
-        }
-      );
+      if (!this.token) {
+        this.token = await this.getAuthToken();
+      }
+      const url = `${this.apiUrl}/Dropshiping/order/exist?orderId=${shopifyOrderId}`;
+      const response = await axios.get(url, {
+        headers: {
+          accept: "application/json",
+          Authorization: `Bearer ${this.token}`,
+          "Content-Type": "application/json",
+        },
+      });
       return response.data; // return CLD order if found
     } catch (e: unknown) {
       // If CLD returns 404, it means not found → safe to place

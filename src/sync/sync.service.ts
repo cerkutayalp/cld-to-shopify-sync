@@ -433,19 +433,19 @@ export class ShopifyStockSyncService {
           // ------------------------
           // 2. CHECK EXISTING CLD ORDER
           // ------------------------
-          // const alreadyInCld = await this.cldService.findOrderByShopifyId(
-          //   order.id.toString()
-          // );
+          const alreadyInCld = await this.cldService.findOrderByShopifyId(
+            order.id.toString()
+          );
 
-          // if (alreadyInCld) {
-          //   console.log(`⏭ Skipping order ${order.id} (already in CLD).`);
-          //   this.loggerService.logOrderAction(
-          //     "SKIPPED",
-          //     order,
-          //     "Order already placed in CLD"
-          //   );
-          //   continue;
-          // }
+          if (alreadyInCld) {
+            console.log(`⏭ Skipping order ${order.id} (already in CLD).`);
+            this.loggerService.logOrderAction(
+              "SKIPPED",
+              order,
+              "Order already placed in CLD"
+            );
+            continue;
+          }
 
           // ------------------------
           // 3. CREATE CLD CART
