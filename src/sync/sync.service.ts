@@ -5,11 +5,8 @@ import { ConfigService } from "@nestjs/config";
 import { Product } from "../cld/Dto/CldProductResponse";
 import { LoggerService } from "../logger/logger.service";
 import { ShopifyService } from "../../src/shopify/shopify.service";
-import { OrderPayload } from '../cld/Dto/OrderPayload';
-import { ShopifyOrder } from '../shopify/Dto/ShopifyOrderResponse';
-
-
-
+import { OrderPayload } from "../cld/Dto/OrderPayload";
+import { ShopifyOrder } from "../shopify/Dto/ShopifyOrderResponse";
 
 type StockSyncResult = {
   updated: {
@@ -26,38 +23,40 @@ type StockSyncResult = {
   }[];
 };
 
-
-
 @Injectable()
 export class ShopifyStockSyncService {
   private readonly shopifyApiUrl: string;
   private readonly shopifyToken: string;
   private readonly cldWarehouseId: string;
-  private mapShopifyOrderToCldOrderPayload(order: ShopifyOrder, cartId: string): OrderPayload {
+  private mapShopifyOrderToCldOrderPayload(
+    order: ShopifyOrder,
+    cartId: string
+  ): OrderPayload {
     // ensure we only pass the first segment of the cartId
     const cleanCartId = cartId.split(";")[0];
 
     return {
       orderId: String(order.id),
-      customerId: String(order.customer?.id || ''), // or 'guest'
+      customerId: String(order.customer?.id || ""), // or 'guest'
       shippingAddress: {
-        address: order.shipping_address?.address1 || 'UNKNOWN',
-        houseNumber: order.shipping_address?.address2 || '',
-        postCode: order.shipping_address?.zip || '0000',
-        city: order.shipping_address?.city || 'UNKNOWN',
-        countryIso2: (order.shipping_address?.country_code || 'XX').toUpperCase(),
+        address: order.shipping_address?.address1 || "UNKNOWN",
+        houseNumber: order.shipping_address?.address2 || "",
+        postCode: order.shipping_address?.zip || "0000",
+        city: order.shipping_address?.city || "UNKNOWN",
+        countryIso2: (
+          order.shipping_address?.country_code || "XX"
+        ).toUpperCase(),
       },
       clientInfo: {
-        firstName: order.customer?.first_name || 'N/A',
-        lastName: order.customer?.last_name || 'N/A',
-        email: order.customer?.email || 'noemail@example.com',
-        phone: order.customer?.phone || '0000000000', // fallback
-        fax: '',
+        firstName: order.customer?.first_name || "N/A",
+        lastName: order.customer?.last_name || "N/A",
+        email: order.customer?.email || "noemail@example.com",
+        phone: order.customer?.phone || "0000000000", // fallback
+        fax: "",
       },
       cartId: cleanCartId,
     };
   }
-
 
   constructor(
     private configService: ConfigService,
@@ -84,8 +83,8 @@ export class ShopifyStockSyncService {
       const nextPageMatch = linkHeader?.match(/<([^>]+)>;\s*rel="next"/);
       pageInfo = nextPageMatch
         ? `&page_info=${new URL(nextPageMatch[1]).searchParams.get(
-          "page_info"
-        )}`
+            "page_info"
+          )}`
         : "";
       yield res.data.products;
     } while (pageInfo);
@@ -375,12 +374,15 @@ export class ShopifyStockSyncService {
           fulfillment_order_id: fo.id,
           fulfillment_order_line_items: fo.line_items.map((li: any) => ({
             id: li.id,
-            quantity: li.quantity
-          }))
-        }))
-      }
+            quantity: li.quantity,
+          })),
+        })),
+      },
     };
-    console.log("📝 Fulfillment payload prepared:", JSON.stringify(fulfillmentPayload, null, 2));
+    console.log(
+      "📝 Fulfillment payload prepared:",
+      JSON.stringify(fulfillmentPayload, null, 2)
+    );
 
     // 3. Send fulfillment request
     try {
@@ -390,8 +392,8 @@ export class ShopifyStockSyncService {
         {
           headers: {
             "X-Shopify-Access-Token": this.shopifyToken,
-            "Content-Type": "application/json"
-          }
+            "Content-Type": "application/json",
+          },
         }
       );
       console.log("✅ Fulfillment created:", resp.data);
@@ -407,7 +409,9 @@ export class ShopifyStockSyncService {
 
   // send order to cld
   async syncAllOrderToCLD(page_size = 50) {
-    for await (const batch of this.shopifyService.getOrdersPaginated(page_size)) {
+    for await (const batch of this.shopifyService.getOrdersPaginated(
+      page_size
+    )) {
       for (const order of batch.orders) {
         console.log(`\n📦 Processing Shopify order ${order.id}`);
         // console.log("🧾 Full Shopify order data:", JSON.stringify(order, null, 2));
@@ -471,8 +475,11 @@ export class ShopifyStockSyncService {
           // ------------------------
           // 4. ADD ITEMS TO CART
           // ------------------------
-       const cart =   await this.cldService.addItemsToCldCart(cartId, cldItems);
-          console.log("➕ Added items to CLD cart.",cart);
+          const cart = await this.cldService.addItemsToCldCart(
+            cartId,
+            cldItems
+          );
+          console.log("➕ Added items to CLD cart.", cart);
 
           // ------------------------
           // 5. GET CLD CART (VERIFY)
@@ -493,7 +500,8 @@ export class ShopifyStockSyncService {
           // 7. PLACE ORDER IN CLD
           // ------------------------
           const placedOrder = await this.cldService.placeOrder(orderPayload);
-          console.log("Placing order in CLD Response:", placedOrder);
+          let x = { ...placedOrder, pdfFile: 'PDF_TRIMMED...' };
+          console.log("Placing order in CLD Response:", x);
 
           // Log PLACED
           await this.loggerService.logOrderAction(
@@ -513,9 +521,8 @@ export class ShopifyStockSyncService {
             console.log(
               `🚀 Fulfilling order ${order.id} AFTER CLD placement...`
             );
-            await this.createShopifyFulfillment(order);
+            //  await this.createShopifyFulfillment(order);
           }
-
         } catch (err: any) {
           console.error(
             `❌ Failed to sync order ${order.id} to CLD:`,
@@ -527,6 +534,4 @@ export class ShopifyStockSyncService {
       }
     }
   }
-
-
 }
