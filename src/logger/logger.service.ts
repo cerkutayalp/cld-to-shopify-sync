@@ -107,7 +107,7 @@ export class LoggerService {
 
         // CLD
         cldCustomerId: cldResponse?.customerId ?? null,
-        cldOrderId: cldResponse?.orderId ?? null,
+        cldOrderId: cldResponse?.docNumber ?? null,
         cldData: cldResponse,
 
         notes,

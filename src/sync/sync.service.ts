@@ -23,6 +23,10 @@ type StockSyncResult = {
   }[];
 };
 
+async function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 @Injectable()
 export class ShopifyStockSyncService {
   private readonly shopifyApiUrl: string;
@@ -167,7 +171,7 @@ export class ShopifyStockSyncService {
           cldStock: cldStock?.stock || 0,
           sku: sku,
         });
-        // process.exit(0);
+          await delay(5000); // wait 5s between requests
       }
     }
   }
