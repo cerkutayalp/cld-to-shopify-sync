@@ -421,27 +421,15 @@ export class ShopifyStockSyncService {
           // 1. SKIP CANCELLED ORDERS
           // ------------------------
           if (order.cancel_reason !== null || order.cancelled_at !== null) {
-            console.log(`⏭ Skipping order ${order.id} (cancelled in Shopify).`);
+            console.log(
+              `Its a canceled shopify order is skipping order ${order.id} (cancelled in Shopify).`
+            );
             this.loggerService.logOrderAction(
               "SKIPPED",
               order,
-              "Order cancelled in Shopify",
-              this.configService.get<string>("FULFILL_EXISTING_ORDERS")
+              "Order cancelled in Shopify"
             );
-            console.log('ttttttttttttttttttttttttttttttt');
-            
-            // fullfill here as order already in cld but unfulfilled in shopify
-            if (this.configService.get<string>("FULFILL_EXISTING_ORDERS")) {
-              const isPaid = order.financial_status === "paid";
-              const isFulfilled = order.fulfillment_status === "fulfilled";
 
-              if (isPaid && !isFulfilled) {
-                console.log(
-                  `🚀 Fulfilling order ${order.id} AS ORDER in CLD Already Exist`
-                );
-                await this.createShopifyFulfillment(order);
-              }
-            }
             continue;
           }
 
@@ -453,12 +441,40 @@ export class ShopifyStockSyncService {
           );
 
           if (alreadyInCld) {
-            console.log(`⏭ Skipping order ${order.id} (already in CLD).`);
+            console.log(
+              `Order EXIST IN CLD  Skipping order ${order.id} (already in CLD).`
+            );
             this.loggerService.logOrderAction(
               "SKIPPED",
               order,
-              "Order already placed in CLD"
+              `Order EXIST IN CLD  Skipping order ${order.id} (already in CLD).`
             );
+            const fulfillExistingOrders =
+              this.configService.get<string>("FULFILL_EXISTING_ORDERS") ==
+              "true";
+            console.log(
+              "ttttttttttttttttttttttttttttttt FULFILL_EXISTING_ORDERS:",
+              fulfillExistingOrders
+            );
+
+            // fullfill here as order already in cld but unfulfilled in shopify
+            if (fulfillExistingOrders) {
+              const isPaid = order.financial_status === "paid";
+              const isFulfilled = order.fulfillment_status === "fulfilled";
+
+              if (isPaid && !isFulfilled) {
+                console.log(
+                  `🚀 Fulfilling order on shopify ${order.id} AS ORDER in CLD Already Exist`
+                );
+                try {
+                  await this.createShopifyFulfillment(order);
+                } catch (error) {
+                  console.error(
+                    `❌ Failed to fulfill existing order ${order.id}`
+                  );
+                }
+              }
+            }
             continue;
           }
 
@@ -515,7 +531,7 @@ export class ShopifyStockSyncService {
           // 7. PLACE ORDER IN CLD
           // ------------------------
           const placedOrder = await this.cldService.placeOrder(orderPayload);
-          let x = { ...placedOrder, pdfFile: 'PDF_TRIMMED...' };
+          let x = { ...placedOrder, pdfFile: "PDF_TRIMMED..." };
           console.log("Placing order in CLD Response:", x);
 
           // Log PLACED
