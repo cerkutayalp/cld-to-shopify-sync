@@ -143,6 +143,26 @@ export class CldService {
     }
   }
 
+   async getStocksByIds(ids: string[]): Promise<Product[]> {
+    const url = `${this.apiUrl}/Product/get-stock`;
+    const payload: PaginationPayload = {
+      ids: ids, // You can specify specific product IDs here if needed
+      pageNumber: 1,
+      pageSize: 1000,
+    };
+
+    if (!this.token) {
+      this.token = await this.getAuthToken();
+    }
+    const response = await this.getCldProductsPaginated(url, payload);
+
+    if (!response.data || response.data.products.length === 0) {
+      return [];
+    } else {
+      return response.data.products;
+    }
+  }
+
   // Only log the first page
   async logFirstStockPage() {
     for await (const products of this.getStockList()) {

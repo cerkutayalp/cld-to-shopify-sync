@@ -159,14 +159,35 @@ export class ShopifyStockSyncService {
       //  product variants
       for (const variant of shopifyProduct.variants) {
         const { sku, inventory_item_id, id } = variant;
-        const cldStock = cldStocks.find((x) => x.identifier === sku);
 
-        const resp = await this.updateShopifyVariantStock({
-          inventoryItemId: inventory_item_id,
-          // locationId,
-          cldStock: cldStock?.stock || 0,
-          sku: sku,
-        });
+        const cldProduct = cldStocks.find((x) => x.identifier === `${sku}`);
+        if (cldProduct) {
+          console.log(
+            ` SKU: ${sku} | Variant ID: ${id} | CLD Stock: ${cldProduct?.stock}`,
+            cldProduct
+          );
+
+          const resp = await this.updateShopifyVariantStock({
+            inventoryItemId: inventory_item_id,
+            // locationId,
+            cldStock: cldProduct?.stock || 0,
+            sku: sku,
+          });
+        } else {
+          console.log(
+            ` SKU: ${sku} | Variant ID: ${id} | CLD Stock: Not found`
+          );
+
+          this.loggerService.logStockSync(
+            "SKIP",
+            {
+              sku,
+              inventory_item_id,
+            },
+            "CLD Product not found for SKU"
+          );
+        }
+
         // process.exit(0);
       }
     }
@@ -285,10 +306,10 @@ export class ShopifyStockSyncService {
 
       // Step 2: Load all Shopify variants with SKUs
       for await (const shopifyProducts of this.getShopifyProductsPaginated()) {
-        console.log(
-          ` Processing ${shopifyProducts.length} Shopify products\n`,
-          JSON.stringify(shopifyProducts)
-        );
+        // console.log(
+        //   ` Processing ${shopifyProducts.length} Shopify products\n`,
+        //   JSON.stringify(shopifyProducts)
+        // );
         let ids: string[] = [];
         // multiple shopifyProducts
         for (const shopifyProduct of shopifyProducts) {
@@ -325,14 +346,19 @@ export class ShopifyStockSyncService {
             }
           }
         } //end for shopify products loop
+        // console.log(
+        //   `📥 Fetching CLD stocks for ${ids.length} SKUs from Shopify products.`,
+        //   ids
+        // );
 
-        const cldStocks = await this.cldService.getStockListByIds(ids);
+        const cldStocks = await this.cldService.getStocksByIds(ids);
         console.log(
           `📥Stocks Found ${cldStocks.length} matching CLD products.`,
           cldStocks
         );
+
         // TODO MUST REPLACE WITH BULK UPDATE
-        this.updateShopifyVariantStockHandler({
+        await this.updateShopifyVariantStockHandler({
           shopifyProducts,
           locationId,
           cldStocks,
