@@ -356,7 +356,7 @@ export class ShopifyStockSyncService {
           `📥Stocks Found ${cldStocks.length} matching CLD products.`,
           cldStocks
         );
-
+        await delay(5000); // wait 5s between requests
         // TODO MUST REPLACE WITH BULK UPDATE
         await this.updateShopifyVariantStockHandler({
           shopifyProducts,
@@ -432,7 +432,9 @@ export class ShopifyStockSyncService {
       throw err;
     }
   }
-
+  async delay(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
   // send order to cld
   async syncAllOrderToCLD(page_size = 50) {
     for await (const batch of this.shopifyService.getOrdersPaginated(
