@@ -356,7 +356,7 @@ export class ShopifyStockSyncService {
           `📥Stocks Found ${cldStocks.length} matching CLD products.`,
           cldStocks
         );
-        await delay(5000); // wait 5s between requests
+        await this.delay(5000); // wait 5s between requests
         // TODO MUST REPLACE WITH BULK UPDATE
         await this.updateShopifyVariantStockHandler({
           shopifyProducts,
