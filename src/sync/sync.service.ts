@@ -173,6 +173,7 @@ export class ShopifyStockSyncService {
             cldStock: cldProduct?.stock || 0,
             sku: sku,
           });
+          await this.delay(5000); // wait 5s between requests
         } else {
           console.log(
             ` SKU: ${sku} | Variant ID: ${id} | CLD Stock: Not found`
