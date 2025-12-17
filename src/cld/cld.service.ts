@@ -72,7 +72,7 @@ export class CldService {
     console.log("📦 Fetching CLD products with payload ", payload);
     return axios.post(url, payload, {
       headers: {
-        accept: "text/plain",
+        accept: "application/json",
         Authorization: `Bearer ${this.token}`,
         "Content-Type": "application/json-patch+json",
       },
@@ -99,7 +99,8 @@ export class CldService {
         const response = await this.getCldProductsPaginated(url, payload);
         // const response = await axios.post(url, payload, {
         //   headers: {
-        //     accept: "text/plain",
+        //accept: "application/json",
+
         //     Authorization: `Bearer ${this.token}`,
         //     "Content-Type": "application/json-patch+json",
         //   },
@@ -182,7 +183,7 @@ export class CldService {
 
     const response = await axios.get(url, {
       headers: {
-        accept: "text/plain",
+        accept: "application/json",
         Authorization: `Bearer ${this.token}`,
       },
     });
@@ -212,7 +213,7 @@ export class CldService {
     try {
       const response = await axios.post(url, payload, {
         headers: {
-          accept: "text/plain",
+          accept: "application/json",
           Authorization: `Bearer ${this.token}`,
           "Content-Type": "application/json-patch+json",
         },
@@ -236,7 +237,7 @@ export class CldService {
 
     const response = await axios.post(url, payload, {
       headers: {
-        accept: "text/plain",
+        accept: "application/json",
         Authorization: `Bearer ${this.token}`,
         "Content-Type": "application/json-patch+json",
       },
@@ -324,7 +325,7 @@ export class CldService {
           docNumber,
         },
         headers: {
-          Accept: "text/plain",
+          accept: "application/json",
           Authorization: `Bearer ${this.token}`,
         },
       });
