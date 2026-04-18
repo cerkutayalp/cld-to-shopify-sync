@@ -29,9 +29,25 @@ export class ShopifyStockSyncService {
   private readonly shopifyToken: string;
   private readonly cldWarehouseId: string;
   private readonly shopifyChannel: string;
+  private readonly channel: string;
+
+  constructor(
+    private configService: ConfigService,
+    private cldService: CldService,
+    private loggerService: LoggerService,
+    private shopifyService: ShopifyService,
+  ) {
+    this.shopifyApiUrl = configService.get<string>("SHOPIFY_API_URL")!;
+    this.shopifyToken = configService.get<string>("SHOPIFY_ACCESS_TOKEN")!;
+    this.cldWarehouseId = configService.get<string>("SHOPIFY_LOCATION_ID")!;
+    this.channel = this.configService.get<string>("SHOPIFY_STORE") || "";
+    this.shopifyChannel = configService.get<string>("SHOPIFY_WEB_ADDRESS") || this.shopifyApiUrl;
+
+  }
+
   private mapShopifyOrderToCldOrderPayload(
     order: ShopifyOrder,
-    cartId: string
+    cartId: string,
   ): OrderPayload {
     // ensure we only pass the first segment of the cartId
     const cleanCartId = cartId.split(";")[0];
@@ -56,19 +72,8 @@ export class ShopifyStockSyncService {
         fax: "",
       },
       cartId: cleanCartId,
+      channel: this.channel,
     };
-  }
-
-  constructor(
-    private configService: ConfigService,
-    private cldService: CldService,
-    private loggerService: LoggerService,
-    private shopifyService: ShopifyService
-  ) {
-    this.shopifyApiUrl = configService.get<string>("SHOPIFY_API_URL")!;
-    this.shopifyToken = configService.get<string>("SHOPIFY_ACCESS_TOKEN")!;
-    this.cldWarehouseId = configService.get<string>("SHOPIFY_LOCATION_ID")!;
-    this.shopifyChannel = configService.get<string>("SHOPIFY_WEB_ADDRESS") || this.shopifyApiUrl;
   }
   // TODO MOVE TO SHOPIFY_SERVICE
   async *getShopifyProductsPaginated() {
@@ -78,28 +83,28 @@ export class ShopifyStockSyncService {
       console.log("📦 Fetching Shopify products... for pageInfo= ", pageInfo);
       const res = await axios.get(
         `${this.shopifyApiUrl}/admin/api/2023-10/products.json?limit=250${pageInfo}`,
-        { headers: { "X-Shopify-Access-Token": this.shopifyToken } }
+        { headers: { "X-Shopify-Access-Token": this.shopifyToken } },
       );
 
       const linkHeader = res.headers["link"];
       const nextPageMatch = linkHeader?.match(/<([^>]+)>;\s*rel="next"/);
       pageInfo = nextPageMatch
         ? `&page_info=${new URL(nextPageMatch[1]).searchParams.get(
-            "page_info"
+            "page_info",
           )}`
         : "";
       yield res.data.products;
     } while (pageInfo);
 
     console.log(
-      `📦 Loaded ${shopifyVariantsMap.size} Shopify variants with SKUs.`
+      `📦 Loaded ${shopifyVariantsMap.size} Shopify variants with SKUs.`,
     );
     return shopifyVariantsMap;
   }
 
   async enableInventoryManagement(
     sku: string,
-    variantId: number
+    variantId: number,
   ): Promise<void> {
     const response = await axios.put(
       `${this.shopifyApiUrl}/admin/api/2023-10/variants/${variantId}.json`,
@@ -109,7 +114,7 @@ export class ShopifyStockSyncService {
           "X-Shopify-Access-Token": this.shopifyToken,
           "Content-Type": "application/json",
         },
-      }
+      },
     );
     // console.log(
     //   `🛠️ Enabled inventory_management for SKU ${sku} Response `,
@@ -125,7 +130,7 @@ export class ShopifyStockSyncService {
         headers: {
           "X-Shopify-Access-Token": this.shopifyToken,
         },
-      }
+      },
     );
     return res.data.inventory_levels || [];
   }
@@ -139,7 +144,7 @@ export class ShopifyStockSyncService {
         headers: {
           "X-Shopify-Access-Token": this.shopifyToken,
         },
-      }
+      },
     );
     return res.data.locations;
   }
@@ -155,7 +160,7 @@ export class ShopifyStockSyncService {
     cldStocks: Product[];
   }) {
     console.log(
-      `📦 Executing updateShopifyVariantStockHandler for location ${locationId}`
+      `📦 Executing updateShopifyVariantStockHandler for location ${locationId}`,
     );
     for (const shopifyProduct of shopifyProducts) {
       //  product variants
@@ -166,7 +171,7 @@ export class ShopifyStockSyncService {
         if (cldProduct) {
           console.log(
             ` SKU: ${sku} | Variant ID: ${id} | CLD Stock: ${cldProduct?.stock}`,
-            cldProduct
+            cldProduct,
           );
 
           const resp = await this.updateShopifyVariantStock({
@@ -178,7 +183,7 @@ export class ShopifyStockSyncService {
           await this.delay(5000); // wait 5s between requests
         } else {
           console.log(
-            ` SKU: ${sku} | Variant ID: ${id} | CLD Stock: Not found`
+            ` SKU: ${sku} | Variant ID: ${id} | CLD Stock: Not found`,
           );
 
           this.loggerService.logStockSync(
@@ -187,7 +192,7 @@ export class ShopifyStockSyncService {
               sku,
               inventory_item_id,
             },
-            "CLD Product not found for SKU"
+            "CLD Product not found for SKU",
           );
         }
 
@@ -208,7 +213,7 @@ export class ShopifyStockSyncService {
     cldStock: number;
   }) {
     console.log(
-      `updateShopifyVariantStock: inventoryItemId:${inventoryItemId} SKU:${sku} stock ${cldStock}`
+      `updateShopifyVariantStock: inventoryItemId:${inventoryItemId} SKU:${sku} stock ${cldStock}`,
     );
 
     // Fetch all inventory levels for this item
@@ -222,7 +227,7 @@ export class ShopifyStockSyncService {
           sku,
           inventoryItemId,
         },
-        "No inventory levels found"
+        "No inventory levels found",
       );
 
       return { error: "No inventory levels", sku };
@@ -236,7 +241,7 @@ export class ShopifyStockSyncService {
       const location = allLocations.find((loc) => loc.id === level.location_id);
       if (!location) {
         console.warn(
-          `⚠️ Location not found for ID ${level.location_id}. Skipping.`
+          `⚠️ Location not found for ID ${level.location_id}. Skipping.`,
         );
         continue;
       }
@@ -254,7 +259,7 @@ export class ShopifyStockSyncService {
               "X-Shopify-Access-Token": this.shopifyToken,
               "Content-Type": "application/json",
             },
-          }
+          },
         );
 
         // console.log(`✅ Updated SKU ${sku} to ${cldStock} at ${location.name} (ID: ${location.id})`, response.data);
@@ -266,7 +271,7 @@ export class ShopifyStockSyncService {
             stock: cldStock,
             location: location.name,
           },
-          `Updated stock to ${cldStock} at ${location.name}`
+          `Updated stock to ${cldStock} at ${location.name}`,
         );
 
         results.push({ location: location.name, success: true });
@@ -280,7 +285,7 @@ export class ShopifyStockSyncService {
             location: location.name,
             error: error.message,
           },
-          `Failed to update stock at ${location.name}`
+          `Failed to update stock at ${location.name}`,
         );
         results.push({
           location: location.name,
@@ -301,7 +306,7 @@ export class ShopifyStockSyncService {
       // Step 1: Get Shopify location
       const locationRes = await axios.get(
         `${this.shopifyApiUrl}/admin/api/2023-10/locations.json`,
-        { headers: { "X-Shopify-Access-Token": this.shopifyToken } }
+        { headers: { "X-Shopify-Access-Token": this.shopifyToken } },
       );
       const locationId = locationRes.data.locations[0]?.id;
       if (!locationId) throw new Error("No Shopify location found");
@@ -324,7 +329,7 @@ export class ShopifyStockSyncService {
                 const enabledInventoryResp =
                   await this.enableInventoryManagement(sku, id);
                 console.log(
-                  `🛠️ Enable=${enabledInventoryResp} inventory_management for SKU ${sku}`
+                  `🛠️ Enable=${enabledInventoryResp} inventory_management for SKU ${sku}`,
                 );
               }
             } else {
@@ -337,7 +342,7 @@ export class ShopifyStockSyncService {
                   sku,
                   product: shopifyProduct,
                 },
-                "Missing SKU in Shopify product variant"
+                "Missing SKU in Shopify product variant",
               );
               skipped.push({
                 sku: sku,
@@ -356,7 +361,7 @@ export class ShopifyStockSyncService {
         const cldStocks = await this.cldService.getStocksByIds(ids);
         console.log(
           `📥Stocks Found ${cldStocks.length} matching CLD products.`,
-          cldStocks
+          cldStocks,
         );
         await this.delay(5000); // wait 5s between requests
         // TODO MUST REPLACE WITH BULK UPDATE
@@ -368,7 +373,7 @@ export class ShopifyStockSyncService {
       }
 
       console.log(
-        `🔁 Sync complete  → ✅ ${updated.length} updated, ⏭️ ${skipped.length} skipped`
+        `🔁 Sync complete  → ✅ ${updated.length} updated, ⏭️ ${skipped.length} skipped`,
       );
 
       return { updated, skipped };
@@ -385,7 +390,7 @@ export class ShopifyStockSyncService {
     // 1. Get fulfillment orders
     const fOrdersResp = await axios.get(
       `${this.shopifyApiUrl}/admin/api/2023-10/orders/${order.id}/fulfillment_orders.json`,
-      { headers: { "X-Shopify-Access-Token": this.shopifyToken } }
+      { headers: { "X-Shopify-Access-Token": this.shopifyToken } },
     );
     const fOrders = fOrdersResp.data.fulfillment_orders;
     console.log("📦 Fulfillment orders:", JSON.stringify(fOrders, null, 2));
@@ -407,10 +412,10 @@ export class ShopifyStockSyncService {
         })),
       },
     };
-    // console.log(
-    //   "📝 Fulfillment payload prepared:",
-    //   JSON.stringify(fulfillmentPayload, null, 2)
-    // );
+    console.log(
+      "📝 Fulfillment payload prepared:",
+      JSON.stringify(fulfillmentPayload, null, 2),
+    );
 
     // 3. Send fulfillment request
     try {
@@ -422,7 +427,7 @@ export class ShopifyStockSyncService {
             "X-Shopify-Access-Token": this.shopifyToken,
             "Content-Type": "application/json",
           },
-        }
+        },
       );
       console.log("✅ Fulfillment created:", resp.data);
       return resp.data;
@@ -440,7 +445,7 @@ export class ShopifyStockSyncService {
   // send order to cld
   async syncAllOrderToCLD(page_size = 50) {
     for await (const batch of this.shopifyService.getOrdersPaginated(
-      page_size
+      page_size,
     )) {
       for (const order of batch.orders) {
         // console.log(`\n📦 Processing Shopify order ${order.id}`);
@@ -451,13 +456,13 @@ export class ShopifyStockSyncService {
           // 1. SKIP CANCELLED ORDERS
           // ------------------------
           if (order.cancel_reason !== null || order.cancelled_at !== null) {
-            // console.log(
-            //   `Its a canceled shopify order is skipping order ${order.id} (cancelled in Shopify).`
-            // );
+            console.log(
+              `Its a canceled shopify order is skipping order ${order.id} (cancelled in Shopify).`,
+            );
             this.loggerService.logOrderAction(
               "SKIPPED",
               order,
-              "Order cancelled in Shopify"
+              "Order cancelled in Shopify",
             );
 
             continue;
@@ -467,25 +472,25 @@ export class ShopifyStockSyncService {
           // 2. CHECK EXISTING CLD ORDER
           // ------------------------
           const alreadyInCld = await this.cldService.findOrderByShopifyId(
-            order.id.toString()
+            order.id.toString(),
           );
 
           if (alreadyInCld) {
-            // console.log(
-            //   `Order EXIST IN CLD  Skipping order ${order.id} (already in CLD).`
-            // );
+            console.log(
+              `Order EXIST IN CLD  Skipping order ${order.id} (already in CLD).`,
+            );
             this.loggerService.logOrderAction(
               "SKIPPED",
               order,
-              `Order EXIST IN CLD  Skipping order ${order.id} (already in CLD).`
+              `Order EXIST IN CLD  Skipping order ${order.id} (already in CLD).`,
             );
             const fulfillExistingOrders =
               this.configService.get<string>("FULFILL_EXISTING_ORDERS") ==
               "true";
-            // console.log(
-            //   "ttttttttttttttttttttttttttttttt FULFILL_EXISTING_ORDERS:",
-            //   fulfillExistingOrders
-            // );
+            console.log(
+              "ttttttttttttttttttttttttttttttt FULFILL_EXISTING_ORDERS:",
+              fulfillExistingOrders,
+            );
 
             // fullfill here as order already in cld but unfulfilled in shopify
             if (fulfillExistingOrders) {
@@ -493,14 +498,14 @@ export class ShopifyStockSyncService {
               const isFulfilled = order.fulfillment_status === "fulfilled";
 
               if (isPaid && !isFulfilled) {
-                // console.log(
-                //   `🚀 Fulfilling order on shopify ${order.id} AS ORDER in CLD Already Exist`
-                // );
+                console.log(
+                  `🚀 Fulfilling order on shopify ${order.id} AS ORDER in CLD Already Exist`,
+                );
                 try {
                   await this.createShopifyFulfillment(order);
                 } catch (error) {
                   console.error(
-                    `❌ Failed to fulfill existing order ${order.id}`
+                    `❌ Failed to fulfill existing order ${order.id}`,
                   );
                 }
               }
@@ -517,8 +522,20 @@ export class ShopifyStockSyncService {
           // Only include manual fulfillment items
           const cldItems = order.line_items
             .filter((item: any) => item.fulfillment_service === "manual")
+            .filter((item: any) => {
+              const sku = (item?.sku ?? "").trim();
+              if (!sku) {
+                this.loggerService.logOrderAction(
+                  "SKIPPED",
+                  item,
+                  "Item has no SKU; cannot send to CLD",
+                );
+                return false;
+              }
+              return true;
+            })
             .map((item: any) => ({
-              sku: item.sku,
+              sku: (item.sku ?? "").trim(),
               qty: item.quantity,
             }));
 
@@ -528,7 +545,7 @@ export class ShopifyStockSyncService {
               this.loggerService.logOrderAction(
                 "SKIPPED",
                 item,
-                `Item with SKU ${item.sku} uses ${item.fulfillment_service}, not sending to CLD`
+                `Item with SKU ${item.sku} uses ${item.fulfillment_service}, not sending to CLD`,
               );
             }
           });
@@ -554,7 +571,7 @@ export class ShopifyStockSyncService {
           // ------------------------
           const orderPayload = this.mapShopifyOrderToCldOrderPayload(
             order,
-            cartId
+            cartId,
           );
           console.log("📤 Placing CLD order payload:", orderPayload);
 
@@ -570,7 +587,7 @@ export class ShopifyStockSyncService {
             "PLACED",
             order,
             placedOrder,
-            placedOrder.message
+            placedOrder.message,
           );
 
           // ------------------------
@@ -581,14 +598,14 @@ export class ShopifyStockSyncService {
 
           if (isPaid && !isFulfilled && placedOrder.status) {
             console.log(
-              `🚀 Fulfilling order ${order.id} AFTER CLD placement...`
+              `🚀 Fulfilling order ${order.id} AFTER CLD placement...`,
             );
             await this.createShopifyFulfillment(order);
           }
         } catch (err: any) {
           console.error(
             `❌ Failed to sync order ${order.id} to CLD:`,
-            err.message
+            err.message,
           );
 
           this.loggerService.logOrderAction("ERROR", order, err.message);

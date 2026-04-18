@@ -6,35 +6,54 @@ import { PaginationPayload, Product } from "./Dto/CldProductResponse";
 import { CldLoginResponse } from "./Dto/CldLoginResponse";
 import { OrderPayload, PlaceOrderResponse } from "./Dto/OrderPayload";
 import { LoggerService } from "../logger/logger.service";
+import { channel } from "diagnostics_channel";
 
 // Enable retry logic globally
-axiosRetry(axios, {
-  retries: 3,
-  retryDelay: (retryCount, error) => {
-    console.log(
-      `🔁 Retry attempt ${retryCount} due to ${error.code || error.message}`
-    );
-    return retryCount * 1000;
-  },
-  retryCondition: (error) => {
-    return (
-      axiosRetry.isNetworkError(error) || axiosRetry.isRetryableError(error)
-    );
-  },
-});
+// axiosRetry(axios, {
+//   retries: 3,
+//   retryDelay: (retryCount, error) => {
+//     console.log(
+//       `🔁 Retry attempt ${retryCount} due to ${error.code || error.message}`
+//     );
+//     return retryCount * 1000;
+//   },
+//   retryCondition: (error) => {
+//     return (
+//       axiosRetry.isNetworkError(error) || axiosRetry.isRetryableError(error)
+//     );
+//   },
+// });
 //#region cld shopify service using dropshiping api
 @Injectable()
 export class CldService {
   private token: string = "";
   private readonly apiUrl: string;
   private readonly apiKey: string;
+  private readonly channel: string;
+
+  private normalizeCartItems(items: { sku: string; qty: number }[]) {
+    const merged = new Map<string, number>();
+
+    for (const item of items ?? []) {
+      const sku = (item?.sku ?? "").trim();
+      const qty = Number(item?.qty);
+
+      if (!sku) continue;
+      if (!Number.isFinite(qty) || qty <= 0) continue;
+
+      merged.set(sku, (merged.get(sku) ?? 0) + Math.trunc(qty));
+    }
+
+    return Array.from(merged.entries()).map(([sku, qty]) => ({ sku, qty }));
+  }
 
   constructor(
     private configService: ConfigService,
-    private readonly loggerService: LoggerService
+    private readonly loggerService: LoggerService,
   ) {
     this.apiUrl = this.configService.get<string>("CLD_API_URL")!;
     this.apiKey = this.configService.get<string>("CLD_API_KEY")!;
+    this.channel = this.configService.get<string>("SHOPIFY_STORE") || "";
 
     console.log("🧪 LoggerService injected?", !!this.loggerService);
   }
@@ -55,7 +74,7 @@ export class CldService {
           Authorization: `ApiKey ${this.apiKey}`,
           "Content-Type": "application/json",
         },
-      }
+      },
     );
     console.log(" CLD Auth Token: ");
     const loginResponse = response.data as CldLoginResponse;
@@ -67,7 +86,7 @@ export class CldService {
 
   private async getCldProductsPaginated(
     url: string,
-    payload: PaginationPayload
+    payload: PaginationPayload,
   ): Promise<any> {
     console.log("📦 Fetching CLD products with payload ", payload);
     return axios.post(url, payload, {
@@ -144,7 +163,7 @@ export class CldService {
     }
   }
 
-   async getStocksByIds(ids: string[]): Promise<Product[]> {
+  async getStocksByIds(ids: string[]): Promise<Product[]> {
     const url = `${this.apiUrl}/Product/get-stock`;
     const payload: PaginationPayload = {
       ids: ids, // You can specify specific product IDs here if needed
@@ -204,27 +223,56 @@ export class CldService {
     if (!this.token) {
       this.token = await this.getAuthToken();
     }
-    console.log("Adding items to CLD cart:", { cartId, items });
+    const normalizedItems = this.normalizeCartItems(items);
+
+    if (!cartId?.trim()) {
+      throw new Error("❌ Missing cartId for CLD cart add");
+    }
+    if (!this.channel) {
+      throw new Error(
+        "❌ Missing CLD channel (set CLD_CHANNEL or SHOPIFY_STORE in env)",
+      );
+    }
+    if (normalizedItems.length === 0) {
+      throw new Error(
+        "❌ No valid items to add to CLD cart (missing SKU or qty <= 0)",
+      );
+    }
+
+    console.log("Adding items to CLD cart:", {
+      cartId,
+      items: normalizedItems,
+      droppedCount: (items?.length ?? 0) - normalizedItems.length,
+    });
     const url = `${this.apiUrl}/Dropshiping/cart/add`;
 
     const payload = {
-      items,
-      cartId,
-      channel,
+      items: normalizedItems,
+      cartId: cartId.trim(),
+      channel: this.channel,
     };
     try {
       const response = await axios.post(url, payload, {
         headers: {
           accept: "application/json",
           Authorization: `Bearer ${this.token}`,
-          "Content-Type": "application/json-patch+json",
+          "Content-Type": "application/json",
         },
         maxBodyLength: Infinity,
       });
       console.log("add cart rsponse ", response.data);
       return response.data;
     } catch (error) {
-      console.error("❌ Error adding items to CLD cart:", error);
+      if (axios.isAxiosError(error)) {
+        console.error("❌ Error adding items to CLD cart:", {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          url,
+          response: error.response?.data,
+        });
+      } else {
+        console.error("❌ Error adding items to CLD cart:", error);
+      }
       throw error;
     }
   }
@@ -234,19 +282,42 @@ export class CldService {
       this.token = await this.getAuthToken();
     }
 
+    if (!cartId?.trim()) {
+      throw new Error("❌ Missing cartId for CLD cart get");
+    }
+    if (!this.channel) {
+      throw new Error(
+        "❌ Missing CLD channel (set CLD_CHANNEL or SHOPIFY_STORE in env)",
+      );
+    }
+
     const url = `${this.apiUrl}/Dropshiping/cart/get`;
-    const payload = { cartId };
+    const payload = { cartId: cartId.trim(), channel: this.channel };
 
-    const response = await axios.post(url, payload, {
-      headers: {
-        accept: "application/json",
-        Authorization: `Bearer ${this.token}`,
-        "Content-Type": "application/json-patch+json",
-      },
-      maxBodyLength: Infinity,
-    });
+    try {
+      const response = await axios.post(url, payload, {
+        headers: {
+          accept: "application/json",
+          Authorization: `Bearer ${this.token}`,
+          "Content-Type": "application/json",
+        },
+        maxBodyLength: Infinity,
+      });
 
-    return response.data;
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        console.error("❌ Error getting CLD cart:", {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          url,
+          response: error.response?.data,
+        });
+      } else {
+        console.error("❌ Error getting CLD cart:", error);
+      }
+      throw error;
+    }
     // returns: { items, id, docType, docNumber, amountExcludingVat, ... }
   }
 
@@ -256,18 +327,26 @@ export class CldService {
       this.token = await this.getAuthToken();
     }
 
+    if (!this.channel) {
+      throw new Error(
+        "❌ Missing CLD channel (set CLD_CHANNEL or SHOPIFY_STORE in env)",
+      );
+    }
+
     const url = `${this.apiUrl}/Dropshiping/order/place`;
 
     try {
-      console.log(order, "\nPLACE_ORDER: Sending order payload to CLD");
-      const response = await axios.post<PlaceOrderResponse>(url, order, {
+      const payload = { ...(order as any), channel: this.channel };
+      console.log(payload, "\nPLACE_ORDER: Sending order payload to CLD");
+      const response = await axios.post<PlaceOrderResponse>(url, payload, {
         headers: {
           accept: "*/*",
           Authorization: `Bearer ${this.token}`,
-          "Content-Type": "application/json-patch+json",
+          "Content-Type": "application/json",
         },
         maxBodyLength: Infinity,
       });
+      console.log("PLACE_ORDER: Raw response from CLD:", response.data);
 
       if (!response.data?.status) {
         //Failed ...
@@ -275,7 +354,7 @@ export class CldService {
         throw new Error(
           `CLD order placement failed: ${
             response.data?.message || "Unknown error"
-          }`
+          }`,
         );
       } else {
         // Success
@@ -287,7 +366,7 @@ export class CldService {
       //4 print
       console.log("PLACE_ORDER: ERROR [4] CLD order with status:", error);
       this.loggerService.error(
-        `❌ Failed to place order in CLD: ${error.message}`
+        `❌ Failed to place order in CLD: ${error.message}`,
       );
       throw error;
     }

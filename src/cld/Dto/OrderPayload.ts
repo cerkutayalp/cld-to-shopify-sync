@@ -16,6 +16,7 @@ export interface OrderPayload {
     fax: string;
   };
   cartId: string;
+  channel: string;
 }
 
 export interface PlaceOrderResponse {
