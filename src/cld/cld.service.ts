@@ -198,7 +198,8 @@ export class CldService {
   //#region Add item to the cart.
   async addItemsToCldCart(
     cartId: string,
-    items: { sku: string; qty: number }[]
+    items: { sku: string; qty: number }[],
+    channel?: string
   ) {
     if (!this.token) {
       this.token = await this.getAuthToken();
@@ -209,6 +210,7 @@ export class CldService {
     const payload = {
       items,
       cartId,
+      channel,
     };
     try {
       const response = await axios.post(url, payload, {

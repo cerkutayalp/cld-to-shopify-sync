@@ -28,6 +28,7 @@ export class ShopifyStockSyncService {
   private readonly shopifyApiUrl: string;
   private readonly shopifyToken: string;
   private readonly cldWarehouseId: string;
+  private readonly shopifyChannel: string;
   private mapShopifyOrderToCldOrderPayload(
     order: ShopifyOrder,
     cartId: string
@@ -39,19 +40,19 @@ export class ShopifyStockSyncService {
       orderId: String(order.id),
       customerId: String(order.customer?.id || ""), // or 'guest'
       shippingAddress: {
-        address: order.shipping_address?.address1 || "UNKNOWN",
+        address: order.shipping_address?.address1,
         houseNumber: order.shipping_address?.address2 || "",
-        postCode: order.shipping_address?.zip || "0000",
-        city: order.shipping_address?.city || "UNKNOWN",
+        postCode: order.shipping_address?.zip,
+        city: order.shipping_address?.city,
         countryIso2: (
-          order.shipping_address?.country_code || "XX"
+          order.shipping_address?.country_code
         ).toUpperCase(),
       },
       clientInfo: {
-        firstName: order.customer?.first_name || "N/A",
-        lastName: order.customer?.last_name || "N/A",
-        email: order.customer?.email || "noemail@example.com",
-        phone: order.customer?.phone || "0000000000", // fallback
+        firstName: order.customer?.first_name,
+        lastName: order.customer?.last_name,
+        email: order.customer?.email,
+        phone: order.customer?.phone || "",
         fax: "",
       },
       cartId: cleanCartId,
@@ -67,6 +68,7 @@ export class ShopifyStockSyncService {
     this.shopifyApiUrl = configService.get<string>("SHOPIFY_API_URL")!;
     this.shopifyToken = configService.get<string>("SHOPIFY_ACCESS_TOKEN")!;
     this.cldWarehouseId = configService.get<string>("SHOPIFY_LOCATION_ID")!;
+    this.shopifyChannel = configService.get<string>("SHOPIFY_WEB_ADDRESS") || this.shopifyApiUrl;
   }
   // TODO MOVE TO SHOPIFY_SERVICE
   async *getShopifyProductsPaginated() {
@@ -193,7 +195,6 @@ export class ShopifyStockSyncService {
       }
     }
   }
-  // TODO MOVE TO SHOPIFY_SERVICE
 
   async updateShopifyVariantStock({
     sku,
@@ -406,10 +407,10 @@ export class ShopifyStockSyncService {
         })),
       },
     };
-    console.log(
-      "📝 Fulfillment payload prepared:",
-      JSON.stringify(fulfillmentPayload, null, 2)
-    );
+    // console.log(
+    //   "📝 Fulfillment payload prepared:",
+    //   JSON.stringify(fulfillmentPayload, null, 2)
+    // );
 
     // 3. Send fulfillment request
     try {
@@ -442,7 +443,7 @@ export class ShopifyStockSyncService {
       page_size
     )) {
       for (const order of batch.orders) {
-        console.log(`\n📦 Processing Shopify order ${order.id}`);
+        // console.log(`\n📦 Processing Shopify order ${order.id}`);
         // console.log("🧾 Full Shopify order data:", JSON.stringify(order, null, 2));
 
         try {
@@ -450,9 +451,9 @@ export class ShopifyStockSyncService {
           // 1. SKIP CANCELLED ORDERS
           // ------------------------
           if (order.cancel_reason !== null || order.cancelled_at !== null) {
-            console.log(
-              `Its a canceled shopify order is skipping order ${order.id} (cancelled in Shopify).`
-            );
+            // console.log(
+            //   `Its a canceled shopify order is skipping order ${order.id} (cancelled in Shopify).`
+            // );
             this.loggerService.logOrderAction(
               "SKIPPED",
               order,
@@ -470,9 +471,9 @@ export class ShopifyStockSyncService {
           );
 
           if (alreadyInCld) {
-            console.log(
-              `Order EXIST IN CLD  Skipping order ${order.id} (already in CLD).`
-            );
+            // console.log(
+            //   `Order EXIST IN CLD  Skipping order ${order.id} (already in CLD).`
+            // );
             this.loggerService.logOrderAction(
               "SKIPPED",
               order,
@@ -481,10 +482,10 @@ export class ShopifyStockSyncService {
             const fulfillExistingOrders =
               this.configService.get<string>("FULFILL_EXISTING_ORDERS") ==
               "true";
-            console.log(
-              "ttttttttttttttttttttttttttttttt FULFILL_EXISTING_ORDERS:",
-              fulfillExistingOrders
-            );
+            // console.log(
+            //   "ttttttttttttttttttttttttttttttt FULFILL_EXISTING_ORDERS:",
+            //   fulfillExistingOrders
+            // );
 
             // fullfill here as order already in cld but unfulfilled in shopify
             if (fulfillExistingOrders) {
@@ -492,9 +493,9 @@ export class ShopifyStockSyncService {
               const isFulfilled = order.fulfillment_status === "fulfilled";
 
               if (isPaid && !isFulfilled) {
-                console.log(
-                  `🚀 Fulfilling order on shopify ${order.id} AS ORDER in CLD Already Exist`
-                );
+                // console.log(
+                //   `🚀 Fulfilling order on shopify ${order.id} AS ORDER in CLD Already Exist`
+                // );
                 try {
                   await this.createShopifyFulfillment(order);
                 } catch (error) {
@@ -537,9 +538,10 @@ export class ShopifyStockSyncService {
           // ------------------------
           const cart = await this.cldService.addItemsToCldCart(
             cartId,
-            cldItems
+            cldItems,
+            this.shopifyChannel
           );
-          console.log("➕ Added items to CLD cart.", cart);
+          // console.log("➕ Added items to CLD cart.", cart);
 
           // ------------------------
           // 5. GET CLD CART (VERIFY)
