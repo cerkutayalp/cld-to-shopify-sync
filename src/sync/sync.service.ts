@@ -121,7 +121,131 @@ export class ShopifyStockSyncService {
     return res.data.locations;
   }
 
-  //TODO Use Bulk stock request
+  /**
+   * Bulk update inventory quantities using Shopify GraphQL API
+   * Updates up to 100 items per batch
+   */
+  async bulkSetInventoryQuantities(
+    items: { inventoryItemId: number; quantity: number; sku: string }[],
+    locationId: number,
+  ): Promise<{ success: boolean; errors: any[] }> {
+    if (items.length === 0) {
+      return { success: true, errors: [] };
+    }
+
+    const BATCH_SIZE = 100;
+    const allErrors: any[] = [];
+
+    // Process in batches of 100
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      const batch = items.slice(i, i + BATCH_SIZE);
+      console.log(
+        `📦 Bulk updating inventory batch ${Math.floor(i / BATCH_SIZE) + 1} (${batch.length} items)`,
+      );
+
+      const quantities = batch.map((item) => ({
+        inventoryItemId: `gid://shopify/InventoryItem/${item.inventoryItemId}`,
+        locationId: `gid://shopify/Location/${locationId}`,
+        quantity: item.quantity,
+      }));
+
+      const mutation = `
+        mutation inventorySetQuantities($input: InventorySetQuantitiesInput!) {
+          inventorySetQuantities(input: $input) {
+            inventoryAdjustmentGroup {
+              createdAt
+              reason
+              changes {
+                name
+                delta
+              }
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `;
+
+      const variables = {
+        input: {
+          name: "available",
+          reason: "correction",
+          ignoreCompareQuantity: true,
+          quantities,
+        },
+      };
+
+      try {
+        const response = await axios.post(
+          `${this.shopifyApiUrl}/admin/api/2023-10/graphql.json`,
+          { query: mutation, variables },
+          {
+            headers: {
+              "X-Shopify-Access-Token": this.shopifyToken,
+              "Content-Type": "application/json",
+            },
+          },
+        );
+
+        const result = response.data?.data?.inventorySetQuantities;
+        const userErrors = result?.userErrors || [];
+
+        if (userErrors.length > 0) {
+          console.error(`⚠️ GraphQL userErrors:`, userErrors);
+          allErrors.push(...userErrors);
+
+          // Log each error
+          userErrors.forEach((err: any) => {
+            this.loggerService.logStockSync(
+              "ERROR",
+              { batch: i / BATCH_SIZE + 1, field: err.field },
+              err.message,
+            );
+          });
+        } else {
+          console.log(
+            `✅ Batch ${Math.floor(i / BATCH_SIZE) + 1} updated successfully`,
+          );
+
+          // Log success for each item in batch
+          batch.forEach((item) => {
+            this.loggerService.logStockSync(
+              "UPDATE",
+              {
+                sku: item.sku,
+                inventoryItemId: item.inventoryItemId,
+                stock: item.quantity,
+                locationId,
+              },
+              `Bulk updated stock to ${item.quantity}`,
+            );
+          });
+        }
+
+        // Small delay between batches to respect rate limits
+        if (i + BATCH_SIZE < items.length) {
+          await this.delay(500);
+        }
+      } catch (error: any) {
+        console.error(`❌ Bulk update failed for batch:`, error.message);
+        allErrors.push({ message: error.message, batch: i / BATCH_SIZE + 1 });
+
+        this.loggerService.logStockSync(
+          "ERROR",
+          { batch: i / BATCH_SIZE + 1 },
+          `Bulk update failed: ${error.message}`,
+        );
+      }
+    }
+
+    return { success: allErrors.length === 0, errors: allErrors };
+  }
+
+  /**
+   * Collect matching variants and update stock in bulk via GraphQL
+   */
   async updateShopifyVariantStockHandler({
     shopifyProducts,
     locationId,
@@ -132,10 +256,13 @@ export class ShopifyStockSyncService {
     cldStocks: Product[];
   }) {
     console.log(
-      `📦 Executing updateShopifyVariantStockHandler for location ${locationId}`,
+      `📦 Executing updateShopifyVariantStockHandler (BULK) for location ${locationId}`,
     );
+
+    // Collect all items to update
+    const itemsToUpdate: { inventoryItemId: number; quantity: number; sku: string }[] = [];
+
     for (const shopifyProduct of shopifyProducts) {
-      //  product variants
       for (const variant of shopifyProduct.variants) {
         const { sku, inventory_item_id, id } = variant;
 
@@ -143,16 +270,13 @@ export class ShopifyStockSyncService {
         if (cldProduct) {
           console.log(
             ` SKU: ${sku} | Variant ID: ${id} | CLD Stock: ${cldProduct?.stock}`,
-            cldProduct,
           );
 
-          const resp = await this.updateShopifyVariantStock({
+          itemsToUpdate.push({
             inventoryItemId: inventory_item_id,
-            // locationId,
-            cldStock: cldProduct?.stock || 0,
+            quantity: cldProduct?.stock || 0,
             sku: sku,
           });
-          await this.delay(3000); // wait 3s between requests
         } else {
           console.log(
             ` SKU: ${sku} | Variant ID: ${id} | CLD Stock: Not found`,
@@ -167,12 +291,25 @@ export class ShopifyStockSyncService {
             "CLD Product not found for SKU",
           );
         }
-
-        // process.exit(0);
       }
     }
-  }
 
+    // Bulk update all collected items
+    if (itemsToUpdate.length > 0) {
+      console.log(`📦 Bulk updating ${itemsToUpdate.length} inventory items...`);
+      const result = await this.bulkSetInventoryQuantities(
+        itemsToUpdate,
+        parseInt(locationId, 10),
+      );
+      console.log(
+        `📦 Bulk update complete: ${result.success ? "SUCCESS" : "PARTIAL FAILURE"}, ${result.errors.length} errors`,
+      );
+      return result;
+    }
+
+    return { success: true, errors: [] };
+  }
+// For individual updates (not used in bulk flow)
   async updateShopifyVariantStock({
     sku,
     // locationId,
@@ -185,7 +322,7 @@ export class ShopifyStockSyncService {
     cldStock: number;
   }) {
     console.log(
-      `updateShopifyVariantStock: inventoryItemId:${inventoryItemId} SKU:${sku} stock ${cldStock}`,
+      `update-shopify-variant-stock: inventoryItemId:${inventoryItemId} SKU:${sku} stock ${cldStock}`,
     );
 
     // Fetch all inventory levels for this item
