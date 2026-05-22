@@ -122,58 +122,35 @@ export class ShopifyStockSyncService {
   }
 
   /**
-   * Bulk activate inventory items at a location using GraphQL
+   * Activate inventory items at a location using REST API
    * This connects items to the location so stock can be set
    */
   async bulkActivateInventoryAtLocation(
     inventoryItemIds: number[],
     locationId: number,
-  ): Promise<{ success: boolean; errors: any[] }> {
+  ): Promise<{ success: boolean; errors: any[]; activated: number[] }> {
     if (inventoryItemIds.length === 0) {
-      return { success: true, errors: [] };
+      return { success: true, errors: [], activated: [] };
     }
 
-    const BATCH_SIZE = 100;
     const allErrors: any[] = [];
+    const activated: number[] = [];
 
-    for (let i = 0; i < inventoryItemIds.length; i += BATCH_SIZE) {
-      const batch = inventoryItemIds.slice(i, i + BATCH_SIZE);
-      console.log(
-        `📦 Activating inventory batch ${Math.floor(i / BATCH_SIZE) + 1} (${batch.length} items) at location ${locationId}`,
-      );
+    console.log(
+      `📦 Activating ${inventoryItemIds.length} inventory items at location ${locationId} via REST API`,
+    );
 
-      const inventoryItemUpdates = batch.map((id) => ({
-        inventoryItemId: `gid://shopify/InventoryItem/${id}`,
-        activate: true,
-      }));
-
-      const mutation = `
-        mutation inventoryBulkToggleActivation($inventoryItemUpdates: [InventoryBulkToggleActivationInput!]!, $locationId: ID!) {
-          inventoryBulkToggleActivation(inventoryItemUpdates: $inventoryItemUpdates, locationId: $locationId) {
-            inventoryLevels {
-              id
-              quantities(names: ["available"]) {
-                name
-                quantity
-              }
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-      `;
-
-      const variables = {
-        locationId: `gid://shopify/Location/${locationId}`,
-        inventoryItemUpdates,
-      };
+    // Process items one by one using REST API (reliable)
+    for (let i = 0; i < inventoryItemIds.length; i++) {
+      const inventoryItemId = inventoryItemIds[i];
 
       try {
-        const response = await axios.post(
-          `${this.shopifyApiUrl}/admin/api/2023-10/graphql.json`,
-          { query: mutation, variables },
+        await axios.post(
+          `${this.shopifyApiUrl}/admin/api/2023-10/inventory_levels/connect.json`,
+          {
+            location_id: locationId,
+            inventory_item_id: inventoryItemId,
+          },
           {
             headers: {
               "X-Shopify-Access-Token": this.shopifyToken,
@@ -181,35 +158,34 @@ export class ShopifyStockSyncService {
             },
           },
         );
+        activated.push(inventoryItemId);
 
-        const result = response.data?.data?.inventoryBulkToggleActivation;
-        const userErrors = result?.userErrors || [];
-
-        if (userErrors.length > 0) {
-          console.warn(`⚠️ Activation userErrors (may be already active):`, userErrors);
-          // Don't treat "already active" as fatal errors
-          const fatalErrors = userErrors.filter(
-            (err: any) => !err.message?.includes("already stocked"),
-          );
-          if (fatalErrors.length > 0) {
-            allErrors.push(...fatalErrors);
-          }
-        } else {
-          console.log(
-            `✅ Activation batch ${Math.floor(i / BATCH_SIZE) + 1} completed`,
-          );
+        // Log progress every 50 items
+        if ((i + 1) % 50 === 0) {
+          console.log(`📦 Activated ${i + 1}/${inventoryItemIds.length} items...`);
         }
 
-        if (i + BATCH_SIZE < inventoryItemIds.length) {
-          await this.delay(500);
-        }
+        // Small delay to avoid rate limits (50ms between requests)
+        await this.delay(50);
       } catch (error: any) {
-        console.error(`❌ Activation failed for batch:`, error.message);
-        allErrors.push({ message: error.message, batch: i / BATCH_SIZE + 1 });
+        // 422 usually means already connected - that's fine
+        if (error.response?.status === 422) {
+          activated.push(inventoryItemId);
+        } else {
+          allErrors.push({
+            inventoryItemId,
+            message: error.message,
+            status: error.response?.status,
+          });
+        }
       }
     }
 
-    return { success: allErrors.length === 0, errors: allErrors };
+    console.log(
+      `✅ Activation complete: ${activated.length} activated, ${allErrors.length} errors`,
+    );
+
+    return { success: allErrors.length === 0, errors: allErrors, activated };
   }
 
   /**
