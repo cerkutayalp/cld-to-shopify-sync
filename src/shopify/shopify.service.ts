@@ -27,6 +27,36 @@ export class ShopifyService {
 
   //#region FETCH Product / Order
 
+  /**
+   * Retry helper method with exponential backoff
+   * @param fn - Async function to retry
+   * @param maxRetries - Max number of retry attempts
+   * @param delayMs - Initial delay in milliseconds
+   */
+  private async retryWithBackoff<T>(
+    fn: () => Promise<T>,
+    maxRetries = 3,
+    delayMs = 1000
+  ): Promise<T> {
+    let lastError: any;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error: any) {
+        lastError = error;
+        const isNetworkError = !error.response || (error.code && error.code !== 'ERR_BAD_REQUEST');
+        if (attempt < maxRetries && isNetworkError) {
+          const delay = delayMs * attempt; // exponential backoff
+          console.log(`🔁 Retry attempt ${attempt}/${maxRetries} after ${delay}ms due to: ${error.message}`);
+          await new Promise(r => setTimeout(r, delay));
+        } else if (attempt === maxRetries) {
+          throw error;
+        }
+      }
+    }
+    throw lastError;
+  }
+
   async getProducts() {
     const url = `https://${this.store}/admin/api/2024-04/products.json`;
     const response = await axios.get(url, {
@@ -114,6 +144,9 @@ export class ShopifyService {
   }
 
     mapCldToShopifyProduct(cldProduct: any) {
+    // Log full CLD product data
+    console.log("📦 Full CLD Product Data:", JSON.stringify(cldProduct, null, 2));
+    
     const category =
       cldProduct.categories?.en_GB || cldProduct.categories?.fr_BE || "";
     return {
@@ -121,6 +154,11 @@ export class ShopifyService {
       vendor: cldProduct.brand || "",
       product_type: category,
       tags: [category],
+      family: cldProduct.family,
+      price: cldProduct.price,
+      suggestedRetailPrice: cldProduct.suggestedRetailPrice,
+      endOfLife: cldProduct.endOfLife || false,
+      stock: cldProduct.stock ?? 0,
       variants: [
         {
           price: cldProduct.price?.toFixed(2) || "0.00",
@@ -142,27 +180,37 @@ export class ShopifyService {
       "SHOPIFY_ACCESS_TOKEN"
     )!;
 
-    const response = await axios.get(
-      `${shopifyApiUrl}/admin/api/2023-10/products.json?fields=id,variants&limit=250`,
-      {
-        headers: {
-          "X-Shopify-Access-Token": shopifyAccessToken,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    try {
+      const response = await this.retryWithBackoff(
+        () => axios.get(
+          `${shopifyApiUrl}/admin/api/2023-10/products.json?fields=id,variants&limit=250`,
+          {
+            headers: {
+              "X-Shopify-Access-Token": shopifyAccessToken,
+              "Content-Type": "application/json",
+            },
+          }
+        ),
+        3, // max retries
+        1000 // initial delay in ms
+      );
 
-    const products = response.data.products;
+      const products = response.data.products;
 
-    for (const product of products) {
-      for (const variant of product.variants) {
-        if (variant.sku === sku) {
-          return true;
+      for (const product of products) {
+        for (const variant of product.variants) {
+          if (variant.sku === sku) {
+            console.log(`✅ SKU ${sku} already exists in Shopify (retry-safe check).`);
+            return true;
+          }
         }
       }
-    }
 
-    return false;
+      return false;
+    } catch (error: any) {
+      console.error(`❌ Failed to check if SKU ${sku} exists in Shopify after retries: ${error.message}`);
+      throw error;
+    }
   }
 
   async sendProductToShopify(shopifyProduct: any) {
@@ -172,9 +220,38 @@ export class ShopifyService {
     return;
   }
 
+  // Skip products with stock less than 5
+  const stock = shopifyProduct.stock ?? 0;
+  if (stock < 5) {
+    console.log(` Skipping product ${sku}: Stock (${stock}) is less than 5.`);
+    this.loggerService.logProductAction("SKIPPED", shopifyProduct, `Insufficient stock (${stock} < 5)`);
+    return;
+  }
+
+  // Skip products with undefined/null family (ERP Undefined)
+  if (shopifyProduct.family === null || shopifyProduct.family === undefined) {
+    console.log(`Skipping product ${sku}: Family is undefined (ERP Undefined).`);
+    this.loggerService.logProductAction("SKIPPED", shopifyProduct, "ERP Undefined (family is null)");
+    return;
+  }
+
+  // Skip products in "Marketing & consommables" category
+  if (shopifyProduct.product_type === "Marketing & consommables") {
+    console.log(`Skipping product ${sku}: Category is Marketing & consommables.`);
+    this.loggerService.logProductAction("SKIPPED", shopifyProduct, "Marketing & consommables category excluded");
+    return;
+  }
+
+  // Skip products where price > suggestedRetailPrice
+  if (shopifyProduct.suggestedRetailPrice && shopifyProduct.price && shopifyProduct.price > shopifyProduct.suggestedRetailPrice) {
+    console.log(`Skipping product ${sku}: Price (${shopifyProduct.price}) is greater than Suggested Retail Price (${shopifyProduct.suggestedRetailPrice}).`);
+    this.loggerService.logProductAction("SKIPPED", shopifyProduct, "Price exceeds Suggested Retail Price");
+    return;
+  }
+
   const exists = await this.isProductInShopify(sku);
   if (exists) {
-    console.log(`🔁 Product with SKU ${sku} already exists in Shopify. Skipping.`);
+    console.log(` Product with SKU ${sku} already exists in Shopify. Skipping.`);
     this.loggerService.logProductAction("SKIPPED", shopifyProduct, "Duplicate SKU");
     return;
   }
@@ -182,10 +259,12 @@ export class ShopifyService {
   const shopifyApiUrl = this.configService.get<string>("SHOPIFY_API_URL")!;
   const shopifyAccessToken = this.configService.get<string>("SHOPIFY_ACCESS_TOKEN")!;
 
+  const { endOfLife, family, price, suggestedRetailPrice, ...productData } = shopifyProduct;
+  const status = endOfLife ? "archived" : "draft";
   const payload = {
     product: {
-      ...shopifyProduct,
-      status: "draft",
+      ...productData,
+      status,
     },
   };
 

@@ -180,7 +180,7 @@ export class ShopifyStockSyncService {
             cldStock: cldProduct?.stock || 0,
             sku: sku,
           });
-          await this.delay(5000); // wait 5s between requests
+          await this.delay(3000); // wait 3s between requests
         } else {
           console.log(
             ` SKU: ${sku} | Variant ID: ${id} | CLD Stock: Not found`,
@@ -363,7 +363,7 @@ export class ShopifyStockSyncService {
           `📥Stocks Found ${cldStocks.length} matching CLD products.`,
           cldStocks,
         );
-        await this.delay(5000); // wait 5s between requests
+        await this.delay(3000); // wait 3s between requests
         // TODO MUST REPLACE WITH BULK UPDATE
         await this.updateShopifyVariantStockHandler({
           shopifyProducts,
