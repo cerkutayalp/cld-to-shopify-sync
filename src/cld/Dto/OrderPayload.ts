@@ -17,6 +17,7 @@ export interface OrderPayload {
   };
   cartId: string;
   channel: string;
+  shippingNote?: string;
 }
 
 export interface PlaceOrderResponse {

@@ -7,22 +7,23 @@ import { CldLoginResponse } from "./Dto/CldLoginResponse";
 import { OrderPayload, PlaceOrderResponse } from "./Dto/OrderPayload";
 import { LoggerService } from "../logger/logger.service";
 import { channel } from "diagnostics_channel";
+import { json } from "stream/consumers";
 
 // Enable retry logic globally
-// axiosRetry(axios, {
-//   retries: 3,
-//   retryDelay: (retryCount, error) => {
-//     console.log(
-//       `🔁 Retry attempt ${retryCount} due to ${error.code || error.message}`
-//     );
-//     return retryCount * 1000;
-//   },
-//   retryCondition: (error) => {
-//     return (
-//       axiosRetry.isNetworkError(error) || axiosRetry.isRetryableError(error)
-//     );
-//   },
-// });
+axiosRetry(axios, {
+  retries: 3,
+  retryDelay: (retryCount, error) => {
+    console.log(
+      `🔁 Retry attempt ${retryCount} due to ${error.code || error.message}`
+    );
+    return retryCount * 5000;
+  },
+  retryCondition: (error) => {
+    return (
+      axiosRetry.isNetworkError(error) || axiosRetry.isRetryableError(error)
+    );
+  },
+});
 //#region cld shopify service using dropshiping api
 @Injectable()
 export class CldService {
@@ -336,7 +337,17 @@ export class CldService {
     const url = `${this.apiUrl}/Dropshiping/order/place`;
 
     try {
-      const payload = { ...(order as any), channel: this.channel };
+      const shippingNote = this.configService.get<string>("SHIPPING_NOTE");
+      // Send all required fields including cartId and channel
+      const payload = {
+        orderId: order.orderId,
+        customerId: order.customerId,
+        shippingAddress: order.shippingAddress,
+        clientInfo: order.clientInfo,
+        cartId: order.cartId,
+        channel: this.channel,
+        ...(shippingNote && { shippingNote: shippingNote }),
+      };
       console.log(payload, "\nPLACE_ORDER: Sending order payload to CLD");
       const response = await axios.post<PlaceOrderResponse>(url, payload, {
         headers: {
@@ -364,7 +375,7 @@ export class CldService {
       return response.data;
     } catch (error: any) {
       //4 print
-      console.log("PLACE_ORDER: ERROR [4] CLD order with status:", error);
+      // console.log("PLACE_ORDER: ERROR [4] CLD order with status:", JSON.stringify(error.response?.data));
       this.loggerService.error(
         `❌ Failed to place order in CLD: ${error.message}`,
       );
