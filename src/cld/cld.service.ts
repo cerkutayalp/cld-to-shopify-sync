@@ -6,15 +6,13 @@ import { PaginationPayload, Product } from "./Dto/CldProductResponse";
 import { CldLoginResponse } from "./Dto/CldLoginResponse";
 import { OrderPayload, PlaceOrderResponse } from "./Dto/OrderPayload";
 import { LoggerService } from "../logger/logger.service";
-import { channel } from "diagnostics_channel";
-import { json } from "stream/consumers";
 
 // Enable retry logic globally
 axiosRetry(axios, {
   retries: 3,
   retryDelay: (retryCount, error) => {
     console.log(
-      `🔁 Retry attempt ${retryCount} due to ${error.code || error.message}`
+      `🔁 Retry attempt ${retryCount} due to ${error.code || error.message}`,
     );
     return retryCount * 5000;
   },
@@ -28,6 +26,8 @@ axiosRetry(axios, {
 @Injectable()
 export class CldService {
   private token: string = "";
+  private tokenExpiresAt: number | null = null;
+  private refreshToken: string | null = null;
   private readonly apiUrl: string;
   private readonly apiKey: string;
   private readonly channel: string;
@@ -77,12 +77,110 @@ export class CldService {
         },
       },
     );
-    console.log(" CLD Auth Token: ");
-    const loginResponse = response.data as CldLoginResponse;
+    const loginResponse = response.data;
+
+    // Store token and calculate expiry (exp is duration in seconds)
+    this.token = loginResponse.access_token;
+    this.tokenExpiresAt = loginResponse.exp
+      ? Date.now() + loginResponse.exp * 1000
+      : null;
+    this.refreshToken = loginResponse.refresh_token ?? null;
 
     console.log("✅ CLD login success. Token received.");
 
-    return response.data.access_token;
+    return this.token;
+  }
+
+  /**
+   * Refresh the access token using the refresh token.
+   * Throws if refresh token limit exceeded or refresh fails.
+   */
+  private async refreshAuthToken(): Promise<string> {
+    if (!this.refreshToken) {
+      throw new Error("No refresh token available");
+    }
+
+    console.log("🔄 Refreshing CLD token...");
+    const response = await axios.post<CldLoginResponse>(
+      `${this.apiUrl}/auth/refresh-token`,
+      { refreshToken: this.refreshToken },
+      {
+        headers: {
+          accept: "application/json",
+          Authorization: `ApiKey ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    const loginResponse = response.data;
+
+    // Check for refresh token limit exceeded
+    if (
+      loginResponse.success === false &&
+      loginResponse.label === "REFRESH_TOKEN_LOGIN_ATTEMPT_EXCEED_LIMIT"
+    ) {
+      console.log("⚠️ Refresh token limit exceeded, clearing refresh token");
+      this.refreshToken = null;
+      throw new Error("Refresh token limit exceeded");
+    }
+
+    // Store new token and calculate expiry
+    this.token = loginResponse.access_token;
+    this.tokenExpiresAt = loginResponse.exp
+      ? Date.now() + loginResponse.exp * 1000
+      : null;
+    this.refreshToken = loginResponse.refresh_token ?? this.refreshToken;
+
+    console.log("✅ CLD token refreshed successfully.");
+
+    return this.token;
+  }
+
+  /**
+   * Ensure we have a valid token before making API calls.
+   * Handles token expiry with 60-second buffer and refresh token logic.
+   */
+  private async ensureAuthenticated(): Promise<void> {
+    const bufferMs = 60 * 1000; // 1 minute buffer before expiry
+    console.log("🔄 Ensuring CLD token is valid...");
+
+    // Check if token exists and is not expired (with buffer)
+    if (
+      this.token &&
+      this.tokenExpiresAt &&
+      Date.now() < this.tokenExpiresAt - bufferMs
+    ) {
+      console.log("🔄 CLD token is still valid.");
+
+      return; // Token is still valid
+    }
+
+    // Token is missing or expired
+    if (this.refreshToken) {
+      // Try to refresh first
+      console.log("🔄 CLD token expired or missing, attempting refresh...");
+      try {
+        await this.refreshAuthToken();
+        return;
+      } catch (error) {
+        console.log("⚠️ Token refresh failed, falling back to full login");
+        // Fall through to full login
+      }
+    }
+
+    // No refresh token or refresh failed - do full login
+    console.log("🔄 Performing full login to CLD...");
+    await this.getAuthToken();
+  }
+
+  /**
+   * Clear cached token (forces re-authentication on next request)
+   */
+  public clearToken(): void {
+    this.token = "";
+    this.tokenExpiresAt = null;
+    this.refreshToken = null;
   }
 
   private async getCldProductsPaginated(
@@ -108,38 +206,18 @@ export class CldService {
       pageNumber: 1,
     };
 
-    if (!this.token) {
-      this.token = await this.getAuthToken();
-    }
+    await this.ensureAuthenticated();
 
     let havePage = true;
 
     while (havePage) {
-      try {
-        const response = await this.getCldProductsPaginated(url, payload);
-        // const response = await axios.post(url, payload, {
-        //   headers: {
-        //accept: "application/json",
+      const response = await this.getCldProductsPaginated(url, payload);
 
-        //     Authorization: `Bearer ${this.token}`,
-        //     "Content-Type": "application/json-patch+json",
-        //   },
-        //   maxBodyLength: Infinity,
-        // });
-
-        if (!response.data || response.data.products.length === 0) {
-          havePage = false;
-        } else {
-          yield response.data.products;
-          payload.pageNumber++;
-        }
-      } catch (error: any) {
-        if (error.response?.status === 403) {
-          // Token expired → re-generate
-          this.token = await this.getAuthToken();
-        } else {
-          throw error;
-        }
+      if (!response.data || response.data.products.length === 0) {
+        havePage = false;
+      } else {
+        yield response.data.products;
+        payload.pageNumber++;
       }
     }
   }
@@ -152,9 +230,7 @@ export class CldService {
       pageSize: 10000,
     };
 
-    if (!this.token) {
-      this.token = await this.getAuthToken();
-    }
+    await this.ensureAuthenticated();
     const response = await this.getCldProductsPaginated(url, payload);
 
     if (!response.data || response.data.products.length === 0) {
@@ -172,9 +248,7 @@ export class CldService {
       pageSize: 1000,
     };
 
-    if (!this.token) {
-      this.token = await this.getAuthToken();
-    }
+    await this.ensureAuthenticated();
     const response = await this.getCldProductsPaginated(url, payload);
 
     if (!response.data || response.data.products.length === 0) {
@@ -195,9 +269,7 @@ export class CldService {
   //#region Create Cart in CLD.
 
   async createCldCart(): Promise<{ cartId: string }> {
-    if (!this.token) {
-      this.token = await this.getAuthToken();
-    }
+    await this.ensureAuthenticated();
 
     const url = `${this.apiUrl}/Dropshiping/cart/create`;
 
@@ -219,11 +291,9 @@ export class CldService {
   async addItemsToCldCart(
     cartId: string,
     items: { sku: string; qty: number }[],
-    channel?: string
+    channel?: string,
   ) {
-    if (!this.token) {
-      this.token = await this.getAuthToken();
-    }
+    await this.ensureAuthenticated();
     const normalizedItems = this.normalizeCartItems(items);
 
     if (!cartId?.trim()) {
@@ -279,9 +349,7 @@ export class CldService {
   }
 
   async getCldCart(cartId: string) {
-    if (!this.token) {
-      this.token = await this.getAuthToken();
-    }
+    await this.ensureAuthenticated();
 
     if (!cartId?.trim()) {
       throw new Error("❌ Missing cartId for CLD cart get");
@@ -324,9 +392,7 @@ export class CldService {
 
   //#region order placement in CLD
   async placeOrder(order: OrderPayload): Promise<PlaceOrderResponse> {
-    if (!this.token) {
-      this.token = await this.getAuthToken();
-    }
+    await this.ensureAuthenticated();
 
     if (!this.channel) {
       throw new Error(
@@ -385,9 +451,7 @@ export class CldService {
 
   async findOrderByShopifyId(shopifyOrderId: string): Promise<any | null> {
     try {
-      if (!this.token) {
-        this.token = await this.getAuthToken();
-      }
+      await this.ensureAuthenticated();
       const url = `${this.apiUrl}/Dropshiping/order/exist?orderId=${shopifyOrderId}`;
       const response = await axios.get(url, {
         headers: {
@@ -409,6 +473,8 @@ export class CldService {
 
   //#region get Tracking url from cld
   async getTrackingUrl(orderId: string, docType: string, docNumber: string) {
+    await this.ensureAuthenticated();
+
     try {
       const res = await axios.get(`${this.apiUrl}/Account/shipment-link`, {
         params: {

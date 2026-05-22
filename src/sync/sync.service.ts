@@ -7,6 +7,7 @@ import { LoggerService } from "../logger/logger.service";
 import { ShopifyService } from "../../src/shopify/shopify.service";
 import { OrderPayload } from "../cld/Dto/OrderPayload";
 import { ShopifyOrder } from "../shopify/Dto/ShopifyOrderResponse";
+import { mapShopifyOrderToCldOrderPayload } from "./mapper/shopify.to.cld.order.mapper";
 
 type StockSyncResult = {
   updated: {
@@ -45,36 +46,7 @@ export class ShopifyStockSyncService {
 
   }
 
-  private mapShopifyOrderToCldOrderPayload(
-    order: ShopifyOrder,
-    cartId: string,
-  ): OrderPayload {
-    // ensure we only pass the first segment of the cartId
-    const cleanCartId = cartId.split(";")[0];
 
-    return {
-      orderId: String(order.id),
-      customerId: String(order.customer?.id || ""), // or 'guest'
-      shippingAddress: {
-        address: order.shipping_address?.address1,
-        houseNumber: order.shipping_address?.address2 || "",
-        postCode: order.shipping_address?.zip,
-        city: order.shipping_address?.city,
-        countryIso2: (
-          order.shipping_address?.country_code
-        ).toUpperCase(),
-      },
-      clientInfo: {
-        firstName: order.customer?.first_name,
-        lastName: order.customer?.last_name,
-        email: order.customer?.email,
-        phone: order.customer?.phone || "",
-        fax: "",
-      },
-      cartId: cleanCartId,
-      channel: this.channel,
-    };
-  }
   // TODO MOVE TO SHOPIFY_SERVICE
   async *getShopifyProductsPaginated() {
     const shopifyVariantsMap = new Map<string, any>();
@@ -569,9 +541,10 @@ export class ShopifyStockSyncService {
           // ------------------------
           // 6. PREPARE ORDER PAYLOAD
           // ------------------------
-          const orderPayload = this.mapShopifyOrderToCldOrderPayload(
+          const orderPayload = mapShopifyOrderToCldOrderPayload(
             order,
             cartId,
+            this.channel,
           );
           console.log("📤 Placing CLD order payload:", orderPayload);
 
