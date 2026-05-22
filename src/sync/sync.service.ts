@@ -122,6 +122,97 @@ export class ShopifyStockSyncService {
   }
 
   /**
+   * Bulk activate inventory items at a location using GraphQL
+   * This connects items to the location so stock can be set
+   */
+  async bulkActivateInventoryAtLocation(
+    inventoryItemIds: number[],
+    locationId: number,
+  ): Promise<{ success: boolean; errors: any[] }> {
+    if (inventoryItemIds.length === 0) {
+      return { success: true, errors: [] };
+    }
+
+    const BATCH_SIZE = 100;
+    const allErrors: any[] = [];
+
+    for (let i = 0; i < inventoryItemIds.length; i += BATCH_SIZE) {
+      const batch = inventoryItemIds.slice(i, i + BATCH_SIZE);
+      console.log(
+        `📦 Activating inventory batch ${Math.floor(i / BATCH_SIZE) + 1} (${batch.length} items) at location ${locationId}`,
+      );
+
+      const inventoryItemUpdates = batch.map((id) => ({
+        inventoryItemId: `gid://shopify/InventoryItem/${id}`,
+        activate: true,
+      }));
+
+      const mutation = `
+        mutation inventoryBulkToggleActivation($inventoryItemUpdates: [InventoryBulkToggleActivationInput!]!, $locationId: ID!) {
+          inventoryBulkToggleActivation(inventoryItemUpdates: $inventoryItemUpdates, locationId: $locationId) {
+            inventoryLevels {
+              id
+              quantities(names: ["available"]) {
+                name
+                quantity
+              }
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `;
+
+      const variables = {
+        locationId: `gid://shopify/Location/${locationId}`,
+        inventoryItemUpdates,
+      };
+
+      try {
+        const response = await axios.post(
+          `${this.shopifyApiUrl}/admin/api/2023-10/graphql.json`,
+          { query: mutation, variables },
+          {
+            headers: {
+              "X-Shopify-Access-Token": this.shopifyToken,
+              "Content-Type": "application/json",
+            },
+          },
+        );
+
+        const result = response.data?.data?.inventoryBulkToggleActivation;
+        const userErrors = result?.userErrors || [];
+
+        if (userErrors.length > 0) {
+          console.warn(`⚠️ Activation userErrors (may be already active):`, userErrors);
+          // Don't treat "already active" as fatal errors
+          const fatalErrors = userErrors.filter(
+            (err: any) => !err.message?.includes("already stocked"),
+          );
+          if (fatalErrors.length > 0) {
+            allErrors.push(...fatalErrors);
+          }
+        } else {
+          console.log(
+            `✅ Activation batch ${Math.floor(i / BATCH_SIZE) + 1} completed`,
+          );
+        }
+
+        if (i + BATCH_SIZE < inventoryItemIds.length) {
+          await this.delay(500);
+        }
+      } catch (error: any) {
+        console.error(`❌ Activation failed for batch:`, error.message);
+        allErrors.push({ message: error.message, batch: i / BATCH_SIZE + 1 });
+      }
+    }
+
+    return { success: allErrors.length === 0, errors: allErrors };
+  }
+
+  /**
    * Bulk update inventory quantities using Shopify GraphQL API
    * Updates up to 100 items per batch
    */
@@ -296,10 +387,18 @@ export class ShopifyStockSyncService {
 
     // Bulk update all collected items
     if (itemsToUpdate.length > 0) {
+      const locationIdNum = parseInt(locationId, 10);
+
+      // Step 1: Activate inventory items at location (connect them if not already)
+      console.log(`📦 Activating ${itemsToUpdate.length} inventory items at location...`);
+      const inventoryItemIds = itemsToUpdate.map((item) => item.inventoryItemId);
+      await this.bulkActivateInventoryAtLocation(inventoryItemIds, locationIdNum);
+
+      // Step 2: Set quantities
       console.log(`📦 Bulk updating ${itemsToUpdate.length} inventory items...`);
       const result = await this.bulkSetInventoryQuantities(
         itemsToUpdate,
-        parseInt(locationId, 10),
+        locationIdNum,
       );
       console.log(
         `📦 Bulk update complete: ${result.success ? "SUCCESS" : "PARTIAL FAILURE"}, ${result.errors.length} errors`,
