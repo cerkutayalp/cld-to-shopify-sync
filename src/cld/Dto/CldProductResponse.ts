@@ -30,6 +30,8 @@ export interface Product {
   heightMillimeter: number;
   lengthMillimeter: number;
   weightGram: number;
+  countryOfOrigin?: string;  // Country code (e.g., "VN", "CN")
+  family?: string;  // Product family/category
   created: string;
   updated: string;
 }
