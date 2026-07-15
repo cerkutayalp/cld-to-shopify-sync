@@ -35,7 +35,7 @@ export class CronService implements OnApplicationBootstrap {
 
 
   // 🟢 Send all products
-  @Cron('0 0 */4 * * *')// runs at minute 0, every 4th hour
+  @Cron('0 0 */6 * * *')// runs at minute 0, every 6th hour
   async handleProductSync() {
     if (!this.isEnabled('CRON_SEND_ALL_PRODUCTS')) return;
 
@@ -63,7 +63,7 @@ export class CronService implements OnApplicationBootstrap {
   }
 
   // 🟢 Sync orders to CLD
-  @Cron('0 0 */4 * * *') // runs at minute 0, every 4th hour
+  @Cron('0 0 */2 * * *') // runs at minute 0, every 2nd hour
   async handleOrdersSync() {
     if (!this.isEnabled('CRON_ORDERS_TO_CLD')) return;
 

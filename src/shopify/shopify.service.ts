@@ -324,13 +324,24 @@ export class ShopifyService {
       console.log(`⏭️  No variant metafields created (no dimensions found in CLD product)`);
     }
 
+    // Collect ALL images CLD provides (images[] array + single image), deduped, order preserved
+    const imageSrcs = [
+      ...(Array.isArray(cldProduct.images) ? cldProduct.images : []),
+      ...(cldProduct.image ? [cldProduct.image] : []),
+    ]
+      .filter((src) => typeof src === "string" && src.trim().length > 0)
+      // Skip CLD's bare transform base (no actual image file, ends with "/") — Shopify rejects it
+      .filter((src) => !src.trim().endsWith("/"))
+      .filter((src, index, arr) => arr.indexOf(src) === index);
+    const shopifyImages = imageSrcs.map((src) => ({ src }));
+
     const shopifyProduct: any = {
       title: cldProduct.name?.en_GB || cldProduct.name?.fr_BE,
       vendor: cldProduct.brand || "",
       product_type: category,
       tags: [category],
       variants: [variantData],
-      images: cldProduct.image ? [{ src: cldProduct.image }] : [],
+      images: shopifyImages,
       // Store internal fields (not sent to Shopify)
       _family: productFamily,
       _price: cldProduct.price,
