@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Query, Param  } from "@nestjs/common";
 import { ShopifyStockSyncService } from "./sync.service";
 import { CldService } from '../cld/cld.service';
-import { ShopifyService } from "src/shopify/shopify.service";
+import { ShopifyService } from "../shopify/shopify.service";
 import { ShipmentStatusService, ShipmentStatusPayload } from "../cld/Dto/shipment-status.service";
 
 @Controller("shopify")
@@ -17,8 +17,16 @@ export class SyncController {
   @Post('send-all-products')
   async sendAllProducts() {
     try {
-      await this.ShopifyService.sendAllProductsToShopify();
-      return { status: 'success', message: 'All products sent to Shopify (excluding existing ones).' };
+      const result = await this.ShopifyService.sendAllProductsToShopify();
+      // Report a lock-skip honestly instead of claiming the sync ran.
+      if (result?.skipped) {
+        return { status: 'skipped', message: 'A product sync is already running; this trigger was ignored.' };
+      }
+      return {
+        status: 'success',
+        message: 'All products sent to Shopify (excluding existing ones).',
+        summary: result,
+      };
     } catch (error: any) {
       console.error('💥 Error in sendAllProducts:', error);
       return {

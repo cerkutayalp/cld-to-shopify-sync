@@ -3,7 +3,7 @@ import { SyncController } from "./sync.controller";
 import { ShopifyStockSyncService } from "./sync.service";
 import { CldService } from "../cld/cld.service";
 import { ConfigModule } from "@nestjs/config";
-import { ShopifyService } from "src/shopify/shopify.service";
+import { ShopifyService } from "../shopify/shopify.service";
 
 @Module({
   imports: [ConfigModule],

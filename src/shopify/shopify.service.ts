@@ -2,8 +2,8 @@ import { Injectable } from "@nestjs/common";
 import axios from "axios";
 import { ConfigService } from "@nestjs/config";
 import { ShopifyOrderResponse } from "./Dto/ShopifyOrderResponse";
-import { CldService } from "src/cld/cld.service";
-import { LoggerService } from "src/logger/logger.service";
+import { CldService } from "../cld/cld.service";
+import { LoggerService } from "../logger/logger.service";
 
 
 @Injectable()
@@ -11,6 +11,8 @@ export class ShopifyService {
   private readonly store: string;
   private readonly token: string;
   private readonly headers: any
+  /** Guards against overlapping full product syncs (bootstrap + cron + manual trigger). */
+  private productSyncRunning = false;
 
   constructor(private configService: ConfigService, 
     private readonly cldService: CldService,
@@ -44,8 +46,11 @@ export class ShopifyService {
         return await fn();
       } catch (error: any) {
         lastError = error;
+        // A Shopify 429 (rate limit) carries a response, so it would otherwise be treated as
+        // non-retryable. It is exactly the case worth retrying during long paginated walks.
+        const isRateLimited = error.response?.status === 429;
         const isNetworkError = !error.response || (error.code && error.code !== 'ERR_BAD_REQUEST');
-        if (attempt < maxRetries && isNetworkError) {
+        if (attempt < maxRetries && (isNetworkError || isRateLimited)) {
           const delay = delayMs * attempt; // exponential backoff
           console.log(`🔁 Retry attempt ${attempt}/${maxRetries} after ${delay}ms due to: ${error.message}`);
           await new Promise(r => setTimeout(r, delay));
@@ -55,6 +60,74 @@ export class ShopifyService {
       }
     }
     throw lastError;
+  }
+
+  /**
+   * Normalize a SKU for COMPARISON ONLY.
+   *
+   * The value actually written to Shopify stays the raw `cldProduct.identifier` — normalizing
+   * what we store would rewrite SKUs on thousands of live products. This only makes lookups
+   * immune to case/whitespace drift between CLD and what Shopify echoes back.
+   *
+   * @returns the normalized key, or null when the SKU is absent/blank
+   */
+  private normalizeSku(raw: unknown): string | null {
+    if (raw === null || raw === undefined) return null;
+    const s = String(raw).trim();
+    return s.length > 0 ? s.toUpperCase() : null;
+  }
+
+  /** Admin GraphQL endpoint. Version is configurable; existing REST calls keep their own. */
+  private get graphqlUrl(): string {
+    const apiUrl = this.configService.get<string>("SHOPIFY_API_URL")!;
+    const version = this.configService.get<string>("SHOPIFY_API_VERSION") || "2025-01";
+    return `${apiUrl}/admin/api/${version}/graphql.json`;
+  }
+
+  /**
+   * Run an Admin GraphQL operation.
+   *
+   * Throws on transport-level `errors` (the old cost code swallowed those, which is how a removed
+   * mutation went unnoticed). Also throttles proactively off `extensions.cost.throttleStatus`,
+   * which matters for the ~60-page variant walk in getShopifySkuMap.
+   */
+  private async graphql<T = any>(query: string, variables?: any): Promise<T> {
+    const shopifyAccessToken = this.configService.get<string>("SHOPIFY_ACCESS_TOKEN")!;
+
+    const response = await this.retryWithBackoff(
+      () => axios.post(
+        this.graphqlUrl,
+        { query, variables },
+        {
+          headers: {
+            "X-Shopify-Access-Token": shopifyAccessToken,
+            "Content-Type": "application/json",
+          },
+        }
+      ),
+      3,
+      1000
+    );
+
+    if (response.data.errors && response.data.errors.length > 0) {
+      throw new Error(`GraphQL errors: ${JSON.stringify(response.data.errors)}`);
+    }
+
+    // Back off before we run the bucket dry rather than after Shopify 429s us.
+    const throttle = response.data.extensions?.cost?.throttleStatus;
+    if (throttle && throttle.currentlyAvailable < 300) {
+      const restore = throttle.restoreRate || 100;
+      const waitMs = Math.ceil(((300 - throttle.currentlyAvailable) / restore) * 1000);
+      console.log(`⏳ GraphQL bucket low (${throttle.currentlyAvailable}); waiting ${waitMs}ms`);
+      await new Promise(r => setTimeout(r, waitMs));
+    }
+
+    return response.data.data;
+  }
+
+  /** Strip a Shopify gid down to its numeric id (REST consumers need the numeric form). */
+  private toNumericId(id: string): string {
+    return String(id).split("/").pop() || String(id);
   }
 
   async getProducts() {
@@ -146,7 +219,13 @@ export class ShopifyService {
     mapCldToShopifyProduct(cldProduct: any) {
     // Log full CLD product data
     console.log("📦 Full CLD Product Data:", JSON.stringify(cldProduct, null, 2));
-    
+
+    // Focused image inspection: show all top-level keys and any image-related fields
+    console.log(`🔍 CLD product keys [${cldProduct.identifier}]:`, Object.keys(cldProduct).join(", "));
+    const imageKeys = Object.keys(cldProduct).filter((k) => /image|photo|media|picture|gallery|thumb/i.test(k));
+    console.log(`🖼️ CLD image-related fields [${cldProduct.identifier}]:`,
+      JSON.stringify(Object.fromEntries(imageKeys.map((k) => [k, cldProduct[k]])), null, 2));
+
     const category = cldProduct.categories?.en_GB || cldProduct.categories?.fr_BE || "";
     const isEndOfLife = cldProduct.readOnly || false;
     
@@ -269,7 +348,9 @@ export class ShopifyService {
 
     // Prepare variant data with dimensions
     const variantData: any = {
-      price: cldProduct.price?.toFixed(2) || "0.00",
+      // Customer-facing price = CLD suggested retail price (MSRP).
+      // Fallback to purchase price only if MSRP is ever missing.
+      price: (cldProduct.suggestedRetailPrice ?? cldProduct.price)?.toFixed(2) || "0.00",
       sku: cldProduct.identifier,
       barcode: cldProduct.ean || "",
       inventory_quantity: cldProduct.stock ?? 0,
@@ -368,82 +449,132 @@ export class ShopifyService {
     return shopifyProduct;
   }
 
-  //verify sku for dont duplicate product and return product/variant IDs for update
+  /**
+   * Look up a single SKU. Used by the one-off `sendProductByIdToShopify` path.
+   *
+   * Uses a TARGETED GraphQL query rather than scanning the catalogue. The previous version read
+   * only the first 250 products, so any SKU past page 1 reported "not found" and was duplicated
+   * on every call.
+   */
   async getShopifyProductBySku(sku: string): Promise<{ productId: string; variantId: string } | null> {
-    const shopifyApiUrl = this.configService.get<string>("SHOPIFY_API_URL")!;
-    const shopifyAccessToken = this.configService.get<string>(
-      "SHOPIFY_ACCESS_TOKEN"
-    )!;
+    const key = this.normalizeSku(sku);
+    if (!key) {
+      console.warn(`⚠️ Blank SKU passed to getShopifyProductBySku; treating as not found.`);
+      return null;
+    }
 
-    try {
-      const response = await this.retryWithBackoff(
-        () => axios.get(
-          `${shopifyApiUrl}/admin/api/2023-10/products.json?fields=id,variants&limit=250`,
-          {
-            headers: {
-              "X-Shopify-Access-Token": shopifyAccessToken,
-              "Content-Type": "application/json",
-            },
-          }
-        ),
-        3, // max retries
-        1000 // initial delay in ms
-      );
-
-      const products = response.data.products;
-
-      for (const product of products) {
-        for (const variant of product.variants) {
-          if (variant.sku === sku) {
-            console.log(`✅ SKU ${sku} already exists in Shopify (productId: ${product.id}, variantId: ${variant.id}).`);
-            return { productId: product.id, variantId: variant.id };
-          }
+    const query = `
+      query FindBySku($q: String!) {
+        productVariants(first: 10, query: $q) {
+          edges { node { id sku product { id } } }
         }
       }
+    `;
 
-      return null;
+    try {
+      const data = await this.graphql<any>(query, { q: `sku:${JSON.stringify(String(sku))}` });
+
+      // Shopify's `query:` is fuzzy/prefix, so re-filter for an exact match. `first: 10` rather
+      // than 1 is deliberate: with duplicates present, 1 returns an arbitrary copy, not the oldest.
+      const matches = (data?.productVariants?.edges ?? [])
+        .map((e: any) => e.node)
+        .filter((n: any) => this.normalizeSku(n.sku) === key)
+        .map((n: any) => ({
+          productId: this.toNumericId(n.product.id),
+          variantId: this.toNumericId(n.id),
+        }))
+        .sort((a: any, b: any) => (BigInt(a.productId) < BigInt(b.productId) ? -1 : 1));
+
+      if (matches.length === 0) return null;
+
+      if (matches.length > 1) {
+        console.warn(`⚠️ SKU ${key} matches ${matches.length} products; using oldest ${matches[0].productId}`);
+      }
+      console.log(`✅ SKU ${key} already exists in Shopify (productId: ${matches[0].productId}, variantId: ${matches[0].variantId}).`);
+      return matches[0];
     } catch (error: any) {
-      console.error(`❌ Failed to check if SKU ${sku} exists in Shopify after retries: ${error.message}`);
+      console.error(`❌ Failed to check if SKU ${key} exists in Shopify after retries: ${error.message}`);
       throw error;
     }
   }
 
   /**
-   * Fetch all existing products and create a SKU -> {productId, variantId} map
-   * This is useful for bulk operations to avoid querying for each product
+   * Build a SKU -> {productId, variantId} map of EVERY existing variant.
+   *
+   * This walks all pages via GraphQL cursor pagination. The previous implementation made a single
+   * REST call capped at 250 products, so with a catalogue of thousands every SKU beyond page 1
+   * looked new and was re-created on each run — the cause of the mass duplication.
+   *
+   * On a duplicated SKU the OLDEST product (lowest numeric id) wins, which matches the cleanup
+   * script's canonical choice so sync and cleanup converge on the same record.
    */
   async getShopifySkuMap(): Promise<Map<string, { productId: string; variantId: string }>> {
-    const shopifyApiUrl = this.configService.get<string>("SHOPIFY_API_URL")!;
-    const shopifyAccessToken = this.configService.get<string>(
-      "SHOPIFY_ACCESS_TOKEN"
-    )!;
     const skuMap = new Map<string, { productId: string; variantId: string }>();
+    const duplicateCounts = new Map<string, number>();
+
+    const query = `
+      query VariantsPage($cursor: String) {
+        productVariants(first: 250, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          edges { node { id sku product { id } } }
+        }
+      }
+    `;
 
     try {
-      const response = await this.retryWithBackoff(
-        () => axios.get(
-          `${shopifyApiUrl}/admin/api/2023-10/products.json?fields=id,variants&limit=250`,
-          {
-            headers: {
-              "X-Shopify-Access-Token": shopifyAccessToken,
-              "Content-Type": "application/json",
-            },
-          }
-        ),
-        3, // max retries
-        1000 // initial delay in ms
-      );
+      let cursor: string | null = null;
+      let pages = 0;
+      let variants = 0;
+      let blankSkus = 0;
 
-      const products = response.data.products;
-      for (const product of products) {
-        for (const variant of product.variants) {
-          if (variant.sku) {
-            skuMap.set(variant.sku, { productId: product.id, variantId: variant.id });
+      do {
+        const data: any = await this.graphql<any>(query, { cursor });
+        const conn = data?.productVariants;
+        if (!conn) break;
+
+        for (const edge of conn.edges) {
+          const node = edge.node;
+          variants++;
+
+          const key = this.normalizeSku(node.sku);
+          if (!key) {
+            blankSkus++;
+            continue;
           }
+
+          const productId = this.toNumericId(node.product.id);
+          const variantId = this.toNumericId(node.id);
+          const existing = skuMap.get(key);
+
+          if (existing) {
+            duplicateCounts.set(key, (duplicateCounts.get(key) ?? 1) + 1);
+            // Keep the oldest (lowest id) regardless of the order pages arrive in.
+            if (BigInt(productId) < BigInt(existing.productId)) {
+              skuMap.set(key, { productId, variantId });
+            }
+          } else {
+            skuMap.set(key, { productId, variantId });
+          }
+        }
+
+        cursor = conn.pageInfo.hasNextPage ? conn.pageInfo.endCursor : null;
+        pages++;
+      } while (cursor);
+
+      console.log(`📊 Loaded ${skuMap.size} distinct SKUs from ${variants} variants across ${pages} page(s)`);
+      if (blankSkus > 0) console.warn(`⚠️ Skipped ${blankSkus} variant(s) with a blank SKU`);
+
+      if (duplicateCounts.size > 0) {
+        console.warn(`⚠️ ${duplicateCounts.size} SKU(s) map to multiple products (canonical = oldest/lowest id).`);
+        const worst = [...duplicateCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
+        for (const [sku, count] of worst) {
+          console.warn(`   duplicate SKU ${sku}: ${count} products`);
+        }
+        if (duplicateCounts.size > worst.length) {
+          console.warn(`   ...and ${duplicateCounts.size - worst.length} more`);
         }
       }
 
-      console.log(`📊 Loaded ${skuMap.size} existing SKUs from Shopify`);
       return skuMap;
     } catch (error: any) {
       console.error(`❌ Failed to fetch SKU map from Shopify: ${error.message}`);
@@ -648,6 +779,99 @@ export class ShopifyService {
   }
 
   /**
+   * Set a variant's "Cost per item" (inventoryItem.cost) using GraphQL productVariantsBulkUpdate.
+   * REST variant payloads don't reliably honor `cost`, so we set it on the variant's inventory item.
+   *
+   * NOTE: this used to call `productVariantUpdate`, which Shopify REMOVED in API 2024-04.
+   * Because 2023-10 is sunset, requests are served by a newer supported version where that
+   * mutation no longer exists — every call failed with
+   * "Field 'productVariantUpdate' doesn't exist on type 'Mutation'", so cost was never set.
+   * `productVariantsBulkUpdate` is the supported replacement and needs the owning productId.
+   *
+   * @param cost - Cost per item as a string, e.g. "7.20"
+   */
+  private async setVariantCost(productId: string, variantId: string, cost: string): Promise<boolean> {
+    const shopifyApiUrl = this.configService.get<string>("SHOPIFY_API_URL")!;
+    const shopifyAccessToken = this.configService.get<string>("SHOPIFY_ACCESS_TOKEN")!;
+
+    const query = `
+      mutation SetVariantCost($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+        productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+          productVariants {
+            id
+            inventoryItem {
+              unitCost {
+                amount
+              }
+            }
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    // Convert numeric ids to gid format (handle both numeric and gid inputs)
+    const productIdStr = String(productId).split('/').pop() || productId;
+    const variantIdStr = String(variantId).split('/').pop() || variantId;
+    const variables = {
+      productId: `gid://shopify/Product/${productIdStr}`,
+      variants: [
+        {
+          id: `gid://shopify/ProductVariant/${variantIdStr}`,
+          inventoryItem: { cost },
+        },
+      ],
+    };
+
+    console.log(`💰 Setting cost per item (${cost}) for variant ${variantId}`);
+
+    try {
+      const response = await this.retryWithBackoff(
+        () => axios.post(
+          `${shopifyApiUrl}/admin/api/2023-10/graphql.json`,
+          { query, variables },
+          {
+            headers: {
+              "X-Shopify-Access-Token": shopifyAccessToken,
+              "Content-Type": "application/json",
+            },
+          }
+        ),
+        3,
+        1000
+      );
+
+      const result = response.data.data?.productVariantsBulkUpdate;
+
+      if (response.data.errors && response.data.errors.length > 0) {
+        console.error(`❌ GraphQL errors setting cost:`, JSON.stringify(response.data.errors));
+        return false;
+      }
+
+      if (result?.userErrors && result.userErrors.length > 0) {
+        console.error(`❌ GraphQL user errors setting cost: ${JSON.stringify(result.userErrors)}`);
+        return false;
+      }
+
+      const amount = result?.productVariants?.[0]?.inventoryItem?.unitCost?.amount;
+      if (amount == null) {
+        console.error(`❌ Cost mutation returned no unitCost for variant ${variantId}`);
+        return false;
+      }
+
+      console.log(`✅ Set cost per item for variant ${variantId} (amount: ${amount})`);
+      return true;
+    } catch (error: any) {
+      console.error(`❌ Failed to set variant cost: ${error.message}`);
+      console.error(`   Response data:`, error.response?.data);
+      return false;
+    }
+  }
+
+  /**
    * Update an existing product variant in Shopify
    */
   async updateProductVariantInShopify(productId: string, variantId: string, variantData: any): Promise<any> {
@@ -699,6 +923,61 @@ export class ShopifyService {
     }
   }
 
+  /**
+   * Sync a product's images to match the full set CLD provides.
+   * Shopify rewrites image `src` to its own CDN after upload, so URLs can't be compared directly.
+   * Image count is used as a cheap idempotency guard: only push when Shopify has fewer images
+   * than CLD provides. Sending `product.images` on update replaces the whole set (no duplicates).
+   */
+  async syncProductImagesInShopify(productId: string, images: { src: string }[]): Promise<void> {
+    if (!images || images.length === 0) {
+      return;
+    }
+
+    const shopifyApiUrl = this.configService.get<string>("SHOPIFY_API_URL")!;
+    const shopifyAccessToken = this.configService.get<string>("SHOPIFY_ACCESS_TOKEN")!;
+    const headers = {
+      "X-Shopify-Access-Token": shopifyAccessToken,
+      "Content-Type": "application/json",
+    };
+
+    try {
+      const current = await this.retryWithBackoff(
+        () => axios.get(
+          `${shopifyApiUrl}/admin/api/2023-10/products/${productId}.json?fields=images`,
+          { headers }
+        ),
+        3,
+        1000
+      );
+      const currentCount = current.data.product?.images?.length ?? 0;
+
+      if (currentCount >= images.length) {
+        console.log(`🖼️ Product ${productId} already has ${currentCount} image(s); skipping image sync (CLD has ${images.length}).`);
+        return;
+      }
+
+      console.log(`🖼️ Syncing images for product ${productId}: ${currentCount} → ${images.length}`);
+      await this.retryWithBackoff(
+        () => axios.put(
+          `${shopifyApiUrl}/admin/api/2023-10/products/${productId}.json`,
+          { product: { id: productId, images } },
+          { headers }
+        ),
+        3,
+        1000
+      );
+      console.log(`✅ Synced ${images.length} image(s) for product ${productId}`);
+    } catch (error: any) {
+      console.error(`❌ Failed to sync product images for ${productId}: ${error.message}`);
+      this.loggerService.error(
+        `❌ Failed to sync images for product ${productId}: ${JSON.stringify(
+          error.response?.data || error.message
+        )}`
+      );
+    }
+  }
+
   async sendProductToShopify(shopifyProduct: any, skuMap?: Map<string, { productId: string; variantId: string }>) {
   const sku = shopifyProduct.variants?.[0]?.sku;
   if (!sku) {
@@ -741,15 +1020,18 @@ export class ShopifyService {
     return;
   }
 
-  // Use provided skuMap or fetch from API
-  let existingProduct = skuMap?.get(sku) || null;
-  if (!skuMap) {
+  // Use provided skuMap or fetch from API.
+  // NOTE: a miss in a provided map falls through to a targeted lookup on purpose. Previously a
+  // truncated map turned every miss straight into a create, which is what produced the duplicates.
+  const skuKey = this.normalizeSku(sku);
+  let existingProduct = skuKey ? skuMap?.get(skuKey) || null : null;
+  if (!existingProduct) {
     existingProduct = await this.getShopifyProductBySku(sku);
   }
-  
+
   if (existingProduct) {
     // Product with this SKU already exists - update it
-    this.loggerService.logProductAction("SKIPPED", shopifyProduct, "Duplicate SKU");
+    this.loggerService.logProductAction("UPDATE", shopifyProduct, "Existing SKU");
     console.log(`🔄 Updating existing product with SKU ${sku}...`);
     const variantData = shopifyProduct.variants?.[0];
     if (!variantData) {
@@ -760,11 +1042,34 @@ export class ShopifyService {
     // Log stock update info
     console.log(`📦 Updating stock: ${variantData.inventory_quantity} units for SKU ${sku}`);
 
+    // Only sync price & cost on update when explicitly enabled via env flag.
+    // When disabled, strip `price` from the payload so the update leaves price untouched.
+    const updatePriceAndCost = this.configService.get<string>("UPDATE_PRICE_AND_COST") === "true";
+    let variantUpdateData = variantData;
+    if (!updatePriceAndCost) {
+      const { price: _omitPrice, ...withoutPrice } = variantData;
+      variantUpdateData = withoutPrice;
+      console.log(`⏭️  UPDATE_PRICE_AND_COST is off — leaving price and cost untouched for SKU ${sku}`);
+    }
+
     const response = await this.updateProductVariantInShopify(
       existingProduct.productId,
       existingProduct.variantId,
-      variantData
+      variantUpdateData
     );
+
+    // Update "Cost per item" = CLD purchase price, only when the flag is on
+    if (updatePriceAndCost && price != null) {
+      await this.setVariantCost(
+        existingProduct.productId,
+        existingProduct.variantId,
+        Number(price).toFixed(2)
+      );
+    }
+
+    // Sync all images CLD provides onto the existing product
+    await this.syncProductImagesInShopify(existingProduct.productId, shopifyProduct.images || []);
+
     return response;
   }
 
@@ -818,6 +1123,12 @@ export class ShopifyService {
 
     console.log(`✅ Created product ${productId} with variant ${variantId}`);
 
+    // Feed the new product back into the caller's map, otherwise the same SKU appearing twice in
+    // one run misses the map a second time and creates a duplicate.
+    if (skuMap && skuKey && productId && variantId) {
+      skuMap.set(skuKey, { productId: String(productId), variantId: String(variantId) });
+    }
+
     // Now set product-level metafields via GraphQL
     if (productMetafields.length > 0 && productId) {
       console.log(`📝 Setting ${productMetafields.length} product metafields for product ${productId}...`);
@@ -836,6 +1147,13 @@ export class ShopifyService {
       console.log(`   Result:`, result ? "✅ Success" : "❌ Failed");
     } else {
       console.log(`⏭️  No variant metafields to set`);
+    }
+
+    // Set "Cost per item" = CLD purchase price (only on new product creation)
+    if (productId && variantId && price != null) {
+      await this.setVariantCost(productId, variantId, Number(price).toFixed(2));
+    } else {
+      console.log(`⏭️  No cost to set (variantId or price missing)`);
     }
 
     return response.data;
@@ -881,11 +1199,31 @@ async sendProductByIdToShopify(productId: string) {
    * @param batchSize - Number of products to process before logging batch progress (default: 50)
    */
   async sendAllProductsToShopify(batchSize = 50) {
+    // Bootstrap, cron and the HTTP endpoint all funnel through here. Two concurrent runs would
+    // each hold their own stale map and both create the same products.
+    if (this.productSyncRunning) {
+      console.warn("⚠️ Product sync already in progress — skipping this trigger.");
+      return { skipped: true, reason: "already-running" };
+    }
+    this.productSyncRunning = true;
+
+    try {
     console.log(`🚀 Starting bulk product sync with batch size: ${batchSize}...`);
-    
+
     // Fetch all existing Shopify SKUs once for bulk operation
     console.log("📥 Fetching existing products from Shopify...");
     const skuMap = await this.getShopifySkuMap();
+
+    // Fail closed: an implausibly small map means the fetch was truncated or failed. Creating
+    // against a truncated map is exactly how thousands of duplicates were produced, so refuse
+    // to proceed rather than silently re-creating the catalogue.
+    const minExpected = Number(this.configService.get<string>("SHOPIFY_MIN_EXPECTED_SKUS") ?? 1000);
+    if (skuMap.size < minExpected) {
+      throw new Error(
+        `Refusing to sync: SKU map has only ${skuMap.size} entries (expected >= ${minExpected}). ` +
+        `This usually means the Shopify fetch was truncated. Set SHOPIFY_MIN_EXPECTED_SKUS to override.`
+      );
+    }
 
     let totalCount = 0;
     let createCount = 0;
@@ -924,52 +1262,11 @@ async sendProductByIdToShopify(productId: string) {
    🔄 Updated: ${updateCount}
    ⏭️  Skipped: ${skipCount}
    📈 Total Processed: ${totalCount}`);
-  }
 
-  /**
-   * Send multiple products to Shopify in a batch
-   * @param cldProducts - Array of CLD products to sync
-   * @param batchSize - Number of products to process before logging batch progress
-   */
-  async sendProductsInBatch(cldProducts: any[], batchSize = 50) {
-    console.log(`🚀 Starting batch sync for ${cldProducts.length} products...`);
-    
-    // Fetch all existing Shopify SKUs once for bulk operation
-    console.log("📥 Fetching existing products from Shopify...");
-    const skuMap = await this.getShopifySkuMap();
-
-    let createCount = 0;
-    let updateCount = 0;
-    let skipCount = 0;
-
-    for (let i = 0; i < cldProducts.length; i++) {
-      const cldProduct = cldProducts[i];
-      const shopifyProduct = this.mapCldToShopifyProduct(cldProduct);
-      const sku = shopifyProduct.variants?.[0]?.sku;
-      
-      const response = await this.sendProductToShopify(shopifyProduct, skuMap);
-      
-      if (response) {
-        if (response.variant?.id) {
-          updateCount++;
-        } else if (response.product?.id) {
-          createCount++;
-        }
-      } else if (sku) {
-        skipCount++;
-      }
-
-      if ((i + 1) % batchSize === 0) {
-        console.log(`📊 Processed ${i + 1}/${cldProducts.length} products (Created: ${createCount}, Updated: ${updateCount}, Skipped: ${skipCount})`);
-      }
+      return { skipped: false, createCount, updateCount, skipCount, totalCount };
+    } finally {
+      // Must release on every path, or a thrown error wedges the lock until restart.
+      this.productSyncRunning = false;
     }
-
-    console.log(`
-✅ Batch sync completed!
-📊 Summary:
-   ✨ Created: ${createCount}
-   🔄 Updated: ${updateCount}
-   ⏭️  Skipped: ${skipCount}
-   📈 Total Processed: ${cldProducts.length}`);
   }
 }

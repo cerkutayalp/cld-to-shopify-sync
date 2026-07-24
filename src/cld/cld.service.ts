@@ -208,18 +208,41 @@ export class CldService {
 
     await this.ensureAuthenticated();
 
-    let havePage = true;
+    // Offset paging has no stable-sort guarantee: if CLD reorders between page fetches (stock
+    // changes mid-run), an item can appear on two pages. Deduping by identifier stops that from
+    // becoming a duplicate product in Shopify.
+    const seen = new Set<string>();
+    const MAX_PAGES = 2000; // backstop against a never-ending loop
+    let totalRepeats = 0;
 
-    while (havePage) {
+    while (payload.pageNumber <= MAX_PAGES) {
       const response = await this.getCldProductsPaginated(url, payload);
+      const products = response.data?.products ?? [];
 
-      if (!response.data || response.data.products.length === 0) {
-        havePage = false;
-      } else {
-        yield response.data.products;
-        payload.pageNumber++;
+      if (products.length === 0) break;
+
+      const fresh = products.filter((p: any) => {
+        const id = String(p?.identifier ?? "").trim().toUpperCase();
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+
+      if (fresh.length !== products.length) {
+        const repeats = products.length - fresh.length;
+        totalRepeats += repeats;
+        console.warn(`⚠️ CLD page ${payload.pageNumber}: dropped ${repeats} repeated identifier(s)`);
       }
+
+      if (fresh.length > 0) yield fresh;
+
+      // A short page means we've reached the end; don't wait for an empty one.
+      if (products.length < (payload.pageSize ?? 100)) break;
+
+      payload.pageNumber++;
     }
+
+    console.log(`📦 CLD stock list: ${seen.size} unique product(s)${totalRepeats ? `, ${totalRepeats} repeat(s) dropped` : ""}`);
   }
 
   async getStockListByIds(ids: string[]): Promise<Product[]> {
